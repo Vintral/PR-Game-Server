@@ -1,0 +1,32 @@
+{
+  "name": "pocketrealm.hulaplatypus.com",
+  "version": "1.0.0",
+  "description": "",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "assert": "^1.5.0",
+    "bcrypt": "^3.0.6",
+    "body-parser": "^1.19.0",
+    "colors": "^1.3.3",
+    "cookie-parser": "^1.4.4",
+    "delay": "^2.0.0",
+    "express": "^4.17.0",
+    "express-session": "^1.16.1",
+    "firebase-admin": "^8.3.0",
+    "mysql2": "^1.6.5",
+    "node-gyp": "^6.0.0",
+    "node-schedule": "^1.3.2",
+    "node-uuid": "^1.4.7",
+    "nodemailer": "^5.1.1",
+    "onesignal-node": "^2.1.0",
+    "redis": "^2.8.0",
+    "socket.io": "^2.2.0",
+    "validator": "^6.2.1"
+  }
+}
