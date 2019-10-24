@@ -8,7 +8,7 @@ class Database extends EventEmitter {
 		super();
 		
 		this._debug = true;
-		this.database = mysql.createPool( {
+		/*this.database = mysql.createPool( {
 			host : '104.236.71.139',
 			connectionLimit: 125,
 			queueLimit: 0,
@@ -16,7 +16,17 @@ class Database extends EventEmitter {
 			password : 't3mp',
 			database : 'temp',
 			debug : false
-		} );
+		} );*/
+		
+		this.database = mysql.createPool( {
+			host : 'pocket-realm.ctwbpohhunlz.us-west-1.rds.amazonaws.com',
+			connectionLimit: 125,
+			queueLimit: 0,
+			user : 'pocket_realm_user',			
+			password : 'Dt9Lpmr5DNfs7WKM',
+			database : 'PocketRealm',
+			debug : false
+		} )
 		
 		this.database.on( 'acquire', this.onAcquired );
 		this.database.on( 'connection', this.onConnection );
