@@ -1,6 +1,6 @@
 var util = require("util");
 var	EventEmitter = require("events").EventEmitter;
-var	guid = require('node-uuid');
+var	guid = require('uuid');
 var validator = require('validator');
 var Logger = require( './logger' );
 var bcrypt = require( 'bcrypt' );
