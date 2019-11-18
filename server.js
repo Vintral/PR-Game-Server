@@ -2,6 +2,7 @@
 //	Requires												//
 //==================================//
 let net = require( 'net' );
+const { promisify } = require( 'util' );
 let UUID = require( 'uuid/v4' );
 let Logger = require( './logger' );
 let fs = require('fs');
@@ -106,6 +107,11 @@ redisListener.on( "message", ( channel, message ) => {
 } );
 
 const redisClient = redis.createClient( redisInfo.port, redisInfo.server );
+const getAsync = promisify( redisClient.get ).bind( redisClient );
+const setAsync = promisify( redisClient.set ).bind( redisClient );
+const decrAsync = promisify( redisClient.decrby ).bind( redisClient );
+const incrAsync = promisify( redisClient.incrby ).bind( redisClient );
+
 redisClient.on( "ready", () => {
   let obj = {};
   obj.test = "123";
@@ -162,12 +168,16 @@ firebase.initializeApp( {
 //==================================//
 process.stdin.resume(); //so the program will not close instantly
 
-function exitHandler( options, err ) {
-    if( options.cleanup ) {
+async function exitHandler( options, err ) {
+  console.log( "exitHandler" );
+  if( options.cleanup ) {    
     database.close();
-  }
-    if( err ) console.log( err.stack );
-    if( options.exit ) process.exit();
+    let result = await decrAsync( "NUM_USERS", totalUsers );
+    console.log( "Result: " + result );
+  }  
+
+  if( err ) console.log( err.stack );
+  if( options.exit ) process.exit();
 }
 
 //do something when app is closing
@@ -178,6 +188,16 @@ process.on('SIGINT', exitHandler.bind(null, {exit:true}));
 
 //catches uncaught exceptions
 process.on('uncaughtException', exitHandler.bind(null, {exit:true}));
+
+process.on( "unhandledRejection", ( reason, p ) => {
+  //console.log( "Unhandled Rejection at: Promise" + p + "reason:" + reason );  	
+  console.log( reason );  
+} );
+
+process.on( "SIGTERM", () => {
+  Logger.logServer( "Shutting Down" );
+  redisListener.quit();
+} );
 
 //==========================================//
 //	Data Cachers							              //
@@ -229,7 +249,7 @@ io.on( 'connection', function( socket ) {
     this.user.on( "LOGIN_FAIL", function() {
       socket.emit( "LOGIN_FAIL" );
     } );
-    this.user.on( "LOGIN_SUCCESS", function() {
+    this.user.on( "LOGIN_SUCCESS", async() => {
       totalUsers++;
       Logger.logServer( "Current Users: " + totalUsers );
 
@@ -240,9 +260,9 @@ io.on( 'connection', function( socket ) {
       
       //HTTP.setTotalUsers( totalUsers );
 
-      redisClient.incr( "NUM_USERS", () => {
-        redisClient.get( "NUM_USERS", ( err, res ) => { Logger.logServer( "CURRENT USERS: " + res ); } );
-      } );
+      let result = await incrAsync( "NUM_USERS", 1 );
+      console.log( "CURRENT USERS: " + result );
+      console.log( this.user );
 
       let packet = {};
       packet.userid = this.id;
@@ -949,16 +969,6 @@ io.on( 'connection', function( socket ) {
       Logger.logServer( "Current Users: " + totalUsers );
     }
   } );
-} );
-
-process.on( "unhandledRejection", ( reason, p ) => {
-  //console.log( "Unhandled Rejection at: Promise" + p + "reason:" + reason );  	
-  console.log( reason );
-} );
-
-process.on( "SIGTERM", () => {
-  Logger.logServer( "Shutting Down" );
-  redisListener.quit();
 } );
 
 console.log( "Server Started: " + guid );

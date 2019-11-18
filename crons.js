@@ -41,7 +41,8 @@ class CronManager {
 		for( var u in this.users ) {
 			if( this.users[ u ] ) {
 				Logger.logServer( "Update User: " + u );
-				this.users[ u ].update( expired );
+				//this.users[ u ].update( expired );
+				console.log( this.users[ u ].user );
 			}
 		}
 	}

@@ -670,6 +670,8 @@ class User extends EventEmitter {
 				
 				data.user.units = [];
 				const units = await this.database.get( "SELECT quantity, type FROM users_rounds_units INNER JOIN units ON units.id = unitid WHERE userid = " + this.id + " AND roundid = " + this.currentRound );
+				console.log( "SELECT quantity, type FROM users_rounds_units INNER JOIN units ON units.id = unitid WHERE userid = " + this.id + " AND roundid = " + this.currentRound );
+				console.log( units );
 				for( var u in units ) {
 					data.user.units[ units[ u ].type ] = units[ u ].quantity;
 				}
@@ -680,11 +682,15 @@ class User extends EventEmitter {
 				let mails = await this.database.getOne( "SELECT COUNT(id) AS count FROM mails WHERE recipient = " + this.id + " AND unread = 1 AND recipientview = 1" );
 				data.user.mails = mails ? mails.count : 0;
 
-				this.dispatch( "BUILDINGS_BUILT", { buildings:data.user.buildings } );
+				this.dispatch( "BUILDINGS_BUILT", { buildings:data.user.buildings } ); 
 		
+				console.log( "==============================" );
+				console.log( data );
+				console.log( "==============================" );
+
 				if( $callback ) $callback( data );
-				this.emit( $evt );
-				this.dispatch( $evt, data );				
+				this.emit( $evt );				
+				this.dispatch( $evt, data );
 			} 
 		} else {				
 			data = {};
@@ -3008,7 +3014,7 @@ class User extends EventEmitter {
 		//Validate Input
 		$type = this.validateString( $type );
 		$quantity = parseInt( $quantity );
-
+		
 		if( !$quantity || $quantity <= 0 ) return this.dispatchError( "Invalid amount" );
 		if( !$type ) return this.dispatchError( "Invalid unit" );		
 		
@@ -3130,6 +3136,7 @@ class User extends EventEmitter {
 	dispatch( $msg, $data ) {
 		if( this.connection ){
 			this.debug( "dispatch: " + $msg );
+			console.log( $data );
 			this.connection.emit( $msg, $data ? $data : {} );
 		}
 	}
