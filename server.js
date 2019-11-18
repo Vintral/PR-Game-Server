@@ -262,7 +262,6 @@ io.on( 'connection', function( socket ) {
 
       let result = await incrAsync( "NUM_USERS", 1 );
       console.log( "CURRENT USERS: " + result );
-      console.log( this.user );
 
       let packet = {};
       packet.userid = this.id;
@@ -271,7 +270,7 @@ io.on( 'connection', function( socket ) {
       packet = {};
       let self = this;
       
-      users[ this.id ] = this;			
+      users[ this.user.id ] = this;			
     } );
     
     this.user.on( "MAIL_SENT", function( data ) {
@@ -977,3 +976,8 @@ console.log( "Server Started: " + guid );
 //	Crons									                  //
 //==========================================//
 new CronManager( users, database );
+
+let array = [];
+array[ "testing" ] = 1;
+array[ "test" ] = 2;
+console.log( JSON.stringify( array ) );

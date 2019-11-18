@@ -562,9 +562,9 @@ class User extends EventEmitter {
 		} else await this.database.commit( connection );		
 	}
 
-	//==========================//
-	//	Methods					//
-	//==========================//
+	//====================//
+	//	Methods						//
+	//====================//
 	async load( $evt, $round, $callback ) {
 		this.debug( "load: " + ( $round ? $round : this.currentRound ) );
 
@@ -603,6 +603,10 @@ class User extends EventEmitter {
 		if( this.currentRound ) {
 			data = await this.database.getOne( "SELECT * FROM users_rounds WHERE userid = " + this.id + " AND roundid = " + this.currentRound );			
 			if( data ) {
+				console.log( "-----------------------" );
+				console.log( data );
+				console.log( "-----------------------" );
+
 				//Store the values in our current object
 				this.gold = parseFloat( data.gold );
 				this.land = parseFloat( data.land );
@@ -611,6 +615,7 @@ class User extends EventEmitter {
 				this.mana = parseFloat( data.mana );
 				this.wood = parseFloat( data.wood );
 				this.metal = parseFloat( data.metal );
+				console.log( "METAL: " + this.metal );
 				this.stone = parseFloat( data.stone );
 				this.faith = parseFloat( data.faith );
 				this.energy = parseInt( data.energy );
@@ -644,6 +649,7 @@ class User extends EventEmitter {
 				data.user.land = Math.floor( this.land );
 				data.user.food = Math.floor( this.food );
 				data.user.mana = Math.floor( this.mana );
+				data.user.metal = Math.floor( this.metal );
 				data.user.stone = Math.floor( this.stone );
 				data.user.wood = Math.floor( this.wood );
 				data.user.faith = Math.floor( this.faith );
@@ -668,13 +674,18 @@ class User extends EventEmitter {
 				}
 				data.user.buildings = Buffer.from( JSON.stringify( data.user.buildings ) ).toString( "base64" );				
 				
-				data.user.units = [];
+				data.user.units = {};
 				const units = await this.database.get( "SELECT quantity, type FROM users_rounds_units INNER JOIN units ON units.id = unitid WHERE userid = " + this.id + " AND roundid = " + this.currentRound );
+				console.log( "==============================" );
 				console.log( "SELECT quantity, type FROM users_rounds_units INNER JOIN units ON units.id = unitid WHERE userid = " + this.id + " AND roundid = " + this.currentRound );
 				console.log( units );
 				for( var u in units ) {
 					data.user.units[ units[ u ].type ] = units[ u ].quantity;
 				}
+				console.log( data.user.units );
+				console.log( JSON.stringify( data.user.units ) );
+				console.log( "==============================" );
+				data.user.units = Buffer.from( JSON.stringify( data.user.units ) ).toString( "base64" );
 				
 				let events = await this.database.getOne( "SELECT COUNT(id) AS count FROM events WHERE userid = " + this.id + " AND roundid = " + this.currentRound + " AND unread = 1 AND deleted = 0" );
 				data.user.events = events ? events.count : 0;
@@ -783,6 +794,7 @@ class User extends EventEmitter {
 					if( events ) data.eventsNew = events.count;
 					else data.eventsNew = 0;
 					
+					console.log( data );
 					this.dispatch( "USER_UPDATED", data );
 				}
 			}
