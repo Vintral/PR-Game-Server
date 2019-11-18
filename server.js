@@ -32,6 +32,7 @@ const firebaseServiceAccount = require( './serviceAccountKey.json' );
 let port = 5523;
 let totalUsers = 0;
 const guid = UUID();
+const rankRequests = [];
 
 //==========================================//
 //	Redis																		//
@@ -55,14 +56,14 @@ redisListener.on( "ready", () => {
   redisListener.subscribe( "JOBS_RETRIEVED" );
   redisListener.subscribe( "JOBS_CLEARED" );
   redisListener.subscribe( "JOB_CLAIMED" );
-  redisListener.subscribe( "JOB_ERROR" );
+  redisListener.subscribe( "JOB_ERROR" );  
 } );
 
 redisListener.on( "connect", () => {
   Logger.logServer( "Redis Connection Created" );
 } );
 
-redisListener.on( "message", ( channel, message ) => {
+redisListener.on( "message", async ( channel, message ) => {
   console.log( "Message: " + channel + ": " + message );
 
   let data = JSON.parse( message );
@@ -70,6 +71,34 @@ redisListener.on( "message", ( channel, message ) => {
   switch( channel ) {
     case guid:
       console.log( "RECEIVED MESSAGE FOR US: " + message );
+      switch( data.command ) {
+        case "GET_RANKINGS":          
+          let user = rankRequests[ data.request ];
+          if( user ) {
+            delete rankRequests[ data.request ];            
+
+            let ranks = [];
+            let rank = data.start;
+            for( let i = 0; i < data.ranks.length; i++ ) {
+              let d = {};
+              d.rank = rank++;
+              
+              let entry = data.ranks[ i ].split( "|||" );
+              d.username = entry[ 0 ];
+              d.power = entry[ 1 ];
+              
+              let userinfo = await database.getOne( "SELECT avatar FROM users WHERE username = '" + d.username + "'" );              
+              if( userinfo ) d.avatar = userinfo.avatar;
+              else d.avatar = "none";              
+
+              ranks.push( d );
+            }
+                        
+            users[ user ].emit( "RANKINGS_NEAR", ranks );
+          }
+          break;
+        default: console.log( "UNKNOWN COMMAND: " + data.command ); break;
+      }
       break;
     case "USER_MESSAGE":
       if( users[ data.userid ] ) {
@@ -271,6 +300,17 @@ io.on( 'connection', function( socket ) {
       let self = this;
       
       users[ this.user.id ] = this;			
+    } );
+
+    this.user.on( "POWER_UPDATED", () => {
+      console.log( "POWER UPDATED" );
+      
+      let packet = {};
+      packet.userid = this.user.id;
+      packet.username = this.user.username;
+      packet.roundid = this.user.currentRound;
+      packet.power = this.user.power;
+      redisClient.publish( "SET_POWER", JSON.stringify( packet ) );
     } );
     
     this.user.on( "MAIL_SENT", function( data ) {
@@ -602,7 +642,16 @@ io.on( 'connection', function( socket ) {
   
   socket.on( "GET_NEARBY_RANKINGS", function() {
     if( this.user ) {
-      this.user.getNearbyRankings();
+      //this.user.getNearbyRankings();
+      
+      let packet = {};      
+      packet.username = this.user.username;
+      packet.roundid = this.user.currentRound;
+      packet.server = guid;
+      packet.request = UUID();
+      redisClient.publish( "GET_RANKINGS", JSON.stringify( packet ) );
+
+      rankRequests[ packet.request ] = this.user.id;
     }
   } );
   
@@ -976,8 +1025,3 @@ console.log( "Server Started: " + guid );
 //	Crons									                  //
 //==========================================//
 new CronManager( users, database );
-
-let array = [];
-array[ "testing" ] = 1;
-array[ "test" ] = 2;
-console.log( JSON.stringify( array ) );

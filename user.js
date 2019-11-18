@@ -1016,6 +1016,8 @@ class User extends EventEmitter {
 			return;
 		}
 		
+		this.emit( "POWER_UPDATED" );
+
 		this.power = power;
 		const updateQuery = "UPDATE users_rounds SET power = " + this.power + " WHERE userid = " + $userid + " AND roundid = " + $roundid + " LIMIT 1";			
 		const connection = await this.database.beginTransaction();	
