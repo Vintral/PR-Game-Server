@@ -666,12 +666,12 @@ class User extends EventEmitter {
 				data.user.recruit = Math.floor( this.recruitPower );
 				data.user.defense = Math.floor( this.defensePower );				
 
-				data.user.buildings = [];				
+				data.user.buildings = {};				
 				const buildings = await this.database.get( "SELECT quantity, type FROM users_rounds_buildings INNER JOIN buildings ON buildingid = buildings.id WHERE userid = " + this.id + " AND roundid = " + this.currentRound + " ORDER BY quantity DESC" );
-				for( var b in buildings ) {
-					data.user.buildings[ b ] = 1;
-					data.user.buildings[ buildings[ b ].type ] = buildings[ b ].quantity;
+				for( var b in buildings ) {					
+					data.user.buildings[ buildings[ b ].type ] = buildings[ b ].quantity;					
 				}
+				console.log( data.user.buildings );
 				data.user.buildings = Buffer.from( JSON.stringify( data.user.buildings ) ).toString( "base64" );				
 				
 				data.user.units = {};
