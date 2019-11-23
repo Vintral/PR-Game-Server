@@ -11,7 +11,7 @@ let Combat = require( './combat' );
 class User extends EventEmitter {
 	constructor() {
 		super();
-		this._debug = true;
+		this._debug = false;
 	}
 
 	//==========================//
@@ -793,8 +793,7 @@ class User extends EventEmitter {
 					const events = await this.database.getOne( eventQuery );
 					if( events ) data.eventsNew = events.count;
 					else data.eventsNew = 0;
-					
-					console.log( data );
+										
 					this.dispatch( "USER_UPDATED", data );
 				}
 			}
