@@ -970,7 +970,7 @@ io.on( 'connection', function( socket ) {
     if( this.user ) {
       const type = Buffer.from( data.type, "base64" ).toString();
       const value = parseInt( Buffer.from( data.value, "base64" ).toString(), 10 );
-
+      
       this.user.setNotificationSetting( type, value );
     }
   } );

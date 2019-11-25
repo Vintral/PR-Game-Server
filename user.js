@@ -3129,13 +3129,35 @@ class User extends EventEmitter {
 		this.debug( "getNotificationSettings" );		
 
 		let packet = {};
-		//packet.enabled = await
+		packet.turn = 0;
+		packet.mail = 0;
+		packet.attack = 0;
 
-		this.dispatch( "NOTIFICATION_SETTINGS_RETRIEVED" );
+		const query = "SELECT type FROM users_notifications_settings WHERE userid = " + this.id;
+		const result = await this.database.get( query );
+		console.log( result );
+
+		result.forEach( type => packet[ type ] = 1 );
+
+		this.dispatch( "NOTIFICATION_SETTINGS_RETRIEVED", { notifications:packet } );
 	}
 
 	async setNotificationSetting( $type, $value ) {
 		this.debug( "setNotificationSetting: " + $type + " - " + $value );
+
+		let query = "";
+		switch( $value ) {
+			case 1: query = "INSERT INTO users_notifications_settings SET userid = " + this.id + ", type = '" + $type + "'"; break;
+			case 0: query = "DELETE FROM users_notifications_settings WHERE userid = " + this.id + " AND type = '" + $type + "'"; break;
+		}
+
+		if( query ) {			
+			const result = await this.database.execute( query );
+			if( result.affectedRows !== 1 ) {
+				console.log( "ERROR: " + query );
+			}
+		}
+
 		this.dispatch( "NOTIFICATION_SETTINGS_UPDATED" );
 	}
 
