@@ -134,7 +134,7 @@ export default class ChatsController {
     private async getShouts( user:User ):Promise<JSONObject> {
         this.debug( 'getShouts' );
 
-        const query:string = `SELECT username, avatar, time, shout FROM shoutbox INNER JOIN users ON userid = users.id WHERE shoutbox.userid NOT IN ( SELECT contactid AS userid FROM contacts WHERE userid = ? AND type='blocked' ) ORDER BY shoutbox.id DESC LIMIT 200`;
+        const query:string = `SELECT username, avatar, time, shout FROM shoutbox INNER JOIN users ON userid = users.id WHERE shoutbox.userid NOT IN ( SELECT contactid AS userid FROM contacts WHERE userid = ? AND type='blocked' ) ORDER BY shoutbox.id DESC LIMIT 30`;
         const result:RowDataPacket[] = await dbase.query( query, [ user.id ] );        
 
         for( let i:number = 0; i < result[ 0 ].length; i++ ) {

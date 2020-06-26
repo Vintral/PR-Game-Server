@@ -51,7 +51,7 @@ export default class CombatController {
     const combat:Combat = new Combat( user, defender, this._units );
     const result:JSONObject = await combat.raid();
 
-    return { type:'COMBAT_DONE', data:result };
+    return { type:'COMBAT_DONE', data: { user:user.trimDetails(), combat:result } };
   }
 
   private async attack( data:JSONObject, user:User ):Promise<JSONObject> {
@@ -63,8 +63,8 @@ export default class CombatController {
 
     const combat:Combat = new Combat( user, defender, this._units );
     const result:JSONObject = await combat.attack();
-
-    return { type:'COMBAT_DONE', data:result };
+    
+    return { type:'COMBAT_DONE', data: { user:user.trimDetails(), combat:result } };
   }
 
   private async getTargets( user:User ):Promise<JSONObject> {
