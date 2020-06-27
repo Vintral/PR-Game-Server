@@ -28,7 +28,7 @@ dotenv.config();
 import logger from './logger';
 
 import { UnitsProvider } from './providers';
-import { RoundsController, UserController, ActionsController, LibraryController, UsersController, AvatarsController, EventsController, ChatsController, RankingsController, MarketsController, JobsController, CombatController } from './controllers';
+import { RoundsController, UserController, ActionsController, LibraryController, UsersController, AvatarsController, EventsController, ChatsController, RankingsController, MarketsController, JobsController, CombatController, VaultController } from './controllers';
 
 //==========================================//
 //	Variables								//
@@ -169,6 +169,7 @@ const _rankingsController:RankingsController = new RankingsController( redisClie
 const _marketsController:MarketsController = new MarketsController();
 const _jobsController:JobsController = new JobsController( redisClient );
 const _combatController:CombatController = new CombatController( _userController, _unitsProvider );
+const _vaultController:VaultController = new VaultController();
 
 async function test():Promise<void> {
     let query:string = `DELETE FROM users_rounds_units WHERE id > 0`;
@@ -454,6 +455,10 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
             case 'get_targets':
             case 'get_fights': {
                 send( await _combatController.process( data, user ) );
+            } break;
+            case 'get_vault':
+            case 'use_item': {
+                send( await _vaultController.process( data, user ) );
             } break;
             default: 
                 console.log( chalk.white.bgRed( 'ERROR:' ) + chalk.red( ' Unhandled Command - ' + data.command ) );

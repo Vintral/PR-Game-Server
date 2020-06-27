@@ -10,5 +10,6 @@ import RankingsController from './rankings';
 import MarketsController from './markets';
 import JobsController from './jobs'
 import CombatController from './combat';
+import VaultController from './vault';
 
-export { RoundsController, UserController, ActionsController, LibraryController, UsersController, AvatarsController, EventsController, ChatsController, RankingsController, MarketsController, JobsController, CombatController };
+export { RoundsController, UserController, ActionsController, LibraryController, UsersController, AvatarsController, EventsController, ChatsController, RankingsController, MarketsController, JobsController, CombatController, VaultController };

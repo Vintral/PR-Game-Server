@@ -70,8 +70,8 @@ export default class UserController {
             let success:boolean = await user.updateGems( -result.cost );
             if( !success ) return { type:'BUY_ITEM_ERROR', data:'Error Buying Item' };
             else {
-                success = await user.addItem( data.item );
-                if( success ) return { type:'ITEM_BOUGHT', data:result.name };
+                success = await user.addItem( data.item, 5 );
+                if( success ) return { type:'ITEM_BOUGHT', data:{ item:data.item, name:result.name } };
                 else {
                     await user.updateGems( result.cost );
                     return { type:'BUY_ITEM_ERROR', data:'Error Buying Item' };

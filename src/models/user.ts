@@ -530,14 +530,6 @@ export default class User {
       return result.items < this._vaultMax;
   }
 
-  public async addItem( item:number ):Promise<boolean> {
-      this.debug( 'addItem: ' + item );
-
-      const query:string = `INSERT INTO users_vault ( userid, itemid ) VALUES ( ?, ? )`;
-      const result:RowDataPacket = await dbase.query( query, [ this.id, item ] );
-      return result[ 0 ].affectedRows === 1;
-  }
-
   public async updateGems( amount:number ):Promise<boolean> {
       this.debug( 'updateGems: ' + amount );
 
@@ -550,6 +542,36 @@ export default class User {
         result = await dbase.query( query, [ amount, -amount, this.id ] );
       }
       return result[ 0 ].affectedRows === 1;
+  }
+
+  public async addItem( item:number, quantity:number = 1 ):Promise<boolean> {
+    this.debug( 'addItem: ' + item );
+
+    const queries:JSONObject = {
+      insert: `INSERT INTO users_vault ( userid, itemid, quantity ) VALUES ( ?, ?, ?)`,
+      update: `UPDATE users_vault SET quantity = quantity + ? WHERE userid = ? AND itemid = ?`
+    }
+
+    let result:RowDataPacket = await dbase.query( queries.update, [ quantity, this._id, item ] );
+    if( result[ 0 ].affectedRows === 1 ) return true;
+
+    result = await dbase.query( queries.insert, [ this._id, item, quantity ] );
+    return result[ 0 ].affectedRows === 1;
+}
+
+  public async useItem( item:number ):Promise<boolean> {
+      this.debug( 'useItem: ' + item );
+
+      const queries:JSONObject = {
+        insert: `UPDATE users_vault SET quantity = quantity - 1 WHERE quantity > 0 AND userid = ? AND itemid = ?`,
+        delete: `DELETE FROM users_vault WHERE quantity = 0 AND userid = ?`
+      }
+
+      const result:RowDataPacket = await dbase.query( queries.insert, [ this._id, item ] );
+      if( result[ 0 ].affectedRows !== 1 ) return false;
+
+      await dbase.query( queries.delete, [ this.id ] );
+      return true;
   }
 
   private storeDirty( label:string, value:any ):void {
@@ -596,19 +618,25 @@ export default class User {
     // Process the debits
     keys = Object.keys( debits );
     let whereClause:string = ' WHERE';
-    for( let i:number = 0; i < keys.length; i++ ) {      
-      whereClause += ( i > 0 ? ' AND ' : ' ' ) + keys[ i ];
-      if( debits[ keys[ i ] ] > 0 ) whereClause += ' <= ';
-      else whereClause += '>= ';
-      whereClause += '?'//-debits[ keys[ i ] ];
+    if( keys.length > 0 ) {
+        for( let i:number = 0; i < keys.length; i++ ) {      
+        whereClause += ( i > 0 ? ' AND ' : ' ' ) + keys[ i ];
+        if( debits[ keys[ i ] ] > 0 ) whereClause += ' <= ';
+        else whereClause += '>= ';
+        whereClause += '?'//-debits[ keys[ i ] ];
 
-      params.push( -debits[ keys[ i ] ] );
+        params.push( -debits[ keys[ i ] ] );
+        }
+        whereClause += ' AND';
     }
-    whereClause += ' AND userid = ? AND roundid = ?';
+    whereClause += ' userid = ? AND roundid = ?';
+
     params.push( this.id );
     params.push( this.round );        
     
-    const query:string = 'UPDATE users_rounds SET' + setClause + whereClause;    
+    const query:string = 'UPDATE users_rounds SET' + setClause + whereClause;
+    console.log( query );
+    console.log( params );
     const result:RowDataPacket = await dbase.query( query, [ ...params ] );    
     if( result[ 0 ].affectedRows === 1 ) {
       // Clear our dirty values
