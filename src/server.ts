@@ -409,6 +409,8 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
             case 'buy_premium_item':
             case 'update_email':
             case 'update_password':
+            case 'notifications_enabled':
+            case 'notification_setting':
             case 'get_user_data': {
                 send( await _userController.process( data, user ) );
             } break;

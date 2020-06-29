@@ -14,6 +14,8 @@ export default class UserController {
             case 'get_user_data': return { type:'USER_DATA', data: await this.getUserData( user ) };
             case 'update_email': return await this.updateEmail( data, user );
             case 'update_password': return await this.updatePassword( data, user );
+            case 'notification_setting': return await this.updateNotificationSetting( data, user );
+            case 'notifications_enabled': return await this.updateNotificationsEnabled( data, user );
             default: console.log( 'Unhandled Command: ' + data.command );
         }        
     }    
@@ -54,6 +56,59 @@ export default class UserController {
 
         const exists:RowDataPacket[] = await dbase.getOne( 'SELECT id FROM users WHERE username = ?', [ username ] );
         return exists ? true : false;        
+    }
+
+    private async updateNotificationSetting( data:JSONObject, user:User ):Promise<JSONObject> {
+        this.debug( 'updateNotificationSetting' );
+        console.log( data );
+
+        const queries:JSONObject = {
+            check: `SELECT id FROM users_notifications_settings WHERE userid = ? AND type = ?`,
+            insert: `INSERT INTO users_notifications_settings ( userid, type ) VALUES ( ?, ? )`,
+            remove: `DELETE FROM users_notifications_settings WHERE userid = ? AND type = ?`
+        };
+
+        if( data.value ) {
+            let result:RowDataPacket = await dbase.getOne( queries.check, [ user.id, data.type ] );
+            if( result ) return { type: 'NOTIFICATIONs_ENABLED_UPDATED' };
+            else {
+                result = await dbase.query( queries.insert, [ user.id,data.type] );
+                if( result[ 0 ].affectedRows !== 1 ) logger.logError( 'Updating Notification Setting: user(' + user.id + '): ' + data.type + ' - ' + data.value );
+
+                return { type: 'NOTIFICATIONs_ENABLED_UPDATED' };
+            }
+        }
+
+        let result:RowDataPacket = await dbase.query( queries.remove, [ user.id, data.type ] );
+        if( result[ 0 ].affectedRows !== 1 ) logger.logError( 'Updating Notification Setting: user(' + user.id + '): ' + data.type + ' - ' + data.value );
+
+        return { type: 'NOTIFICATIONs_ENABLED_UPDATED' };
+    }
+
+    private async updateNotificationsEnabled( data:JSONObject, user:User ):Promise<JSONObject> {
+        this.debug( 'updateNotificationsEnabled' );
+
+        const queries:JSONObject = {
+            check: `SELECT id FROM users_notifications_settings WHERE userid = ? AND type = ?`,
+            insert: `INSERT INTO users_notifications_settings ( userid, type ) VALUES ( ?, ? )`,
+            remove: `DELETE FROM users_notifications_settings WHERE userid = ? AND type = ?`
+        };
+
+        if( data.value ) {
+            let result:RowDataPacket = await dbase.getOne( queries.check, [ user.id, 'enabled' ] );
+            if( result ) return { type: 'NOTIFICATIONs_ENABLED_UPDATED' };
+            else {
+                result = await dbase.query( queries.insert, [ user.id, 'enabled' ] );
+                if( result[ 0 ].affectedRows !== 1 ) logger.logError( 'Updating Notification Setting: user(' + user.id + '): Enabled' );
+
+                return { type: 'NOTIFICATIONs_ENABLED_UPDATED' };
+            }
+        }
+
+        let result:RowDataPacket = await dbase.query( queries.remove, [ user.id, 'enabled' ] );
+        if( result[ 0 ].affectedRows !== 1 ) logger.logError( 'Updating Notification Setting: user(' + user.id + '): Disabled' );
+
+        return { type: 'NOTIFICATIONs_ENABLED_UPDATED' };                
     }
 
     private async checkPassword( password:string, user:User ):Promise<boolean> {
