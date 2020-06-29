@@ -12,6 +12,8 @@ export default class UserController {
         switch( data.command ) {
             case 'buy_premium_item': return await this.buyPremiumItem( data, user );
             case 'get_user_data': return { type:'USER_DATA', data: await this.getUserData( user ) };
+            case 'update_email': return await this.updateEmail( data, user );
+            case 'update_password': return await this.updatePassword( data, user );
             default: console.log( 'Unhandled Command: ' + data.command );
         }        
     }    
@@ -52,6 +54,41 @@ export default class UserController {
 
         const exists:RowDataPacket[] = await dbase.getOne( 'SELECT id FROM users WHERE username = ?', [ username ] );
         return exists ? true : false;        
+    }
+
+    private async checkPassword( password:string, user:User ):Promise<boolean> {
+        this.debug( 'checkPassword' );
+        
+        const data:RowDataPacket = await dbase.getOne( 'SELECT password FROM users WHERE id = ? LIMIT 1', [ user.id ] );
+        if( data ) {
+            const compare:boolean = await bcrypt.compare( password, data.password );
+            return compare;
+        }
+
+        return false;
+    }
+
+    private async updatePassword( data:JSONObject, user:User ):Promise<JSONObject> {
+        this.debug( 'updatePassword' );
+        
+        if( await this.checkPassword( data.current, user ) ) {
+            const salt = await bcrypt.genSalt( 5 );
+            const hashed = await bcrypt.hash( data.password, salt );
+            const result:RowDataPacket = await dbase.query( `UPDATE users SET password = ? WHERE id = ?`, [ hashed, user.id ] );
+
+            if( result[ 0 ].affectedRows === 1 ) return { type:'PASSWORD_CHANGED' };
+            else return { type:'ERROR', data:'Error Changing Password' };
+        } else return { type:'ERROR', data:'Error Changing Password' };
+    }
+
+    private async updateEmail( data:JSONObject, user:User ):Promise<JSONObject> {
+        this.debug( 'updateEmail' );
+        
+        if( await this.checkPassword( data.password, user ) ) {
+            const result:RowDataPacket = await dbase.query( `UPDATE users SET email = ? WHERE id = ?`, [ data.email, user.id ] );
+            if( result[ 0 ].affectedRows === 1 ) return { type:'EMAIL_CHANGED' };
+            else return { type:'ERROR', data:'Error Changing Email' };
+        } else return { type:'ERROR', data:'Error Changing Email' };
     }
 
     private async buyPremiumItem( data:JSONObject, user:User ):Promise<JSONObject> {

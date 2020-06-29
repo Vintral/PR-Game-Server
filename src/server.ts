@@ -407,6 +407,8 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
                 send( await _actionsController.process( data, user ) );
             } break;
             case 'buy_premium_item':
+            case 'update_email':
+            case 'update_password':
             case 'get_user_data': {
                 send( await _userController.process( data, user ) );
             } break;
