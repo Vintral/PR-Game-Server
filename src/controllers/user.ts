@@ -16,7 +16,7 @@ export default class UserController {
             case 'update_password': return await this.updatePassword( data, user );
             case 'notification_setting': return await this.updateNotificationSetting( data, user );
             case 'notifications_enabled': return await this.updateNotificationsEnabled( data, user );
-            default: console.log( 'Unhandled Command: ' + data.command );
+            default: console.log( 'Unhandled Command: ' + data.command );            
         }        
     }    
 
@@ -56,7 +56,7 @@ export default class UserController {
 
         const exists:RowDataPacket[] = await dbase.getOne( 'SELECT id FROM users WHERE username = ?', [ username ] );
         return exists ? true : false;        
-    }
+    }    
 
     private async updateNotificationSetting( data:JSONObject, user:User ):Promise<JSONObject> {
         this.debug( 'updateNotificationSetting' );

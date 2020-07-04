@@ -16,6 +16,8 @@ export default class ActionsController {
       case 'gather': return await this.processGather(data, user);
       case 'build': return await this.processBuild(data, user);
       case 'recruit': return await this.processRecruit(data, user);
+      case 'fire_unit': return await this.processFire( data, user );
+      case 'destroy_building': return await this.processDestroy( data, user );
       default: {
         console.log('Unhandled Command: ' + data.command);
       }
@@ -26,6 +28,26 @@ export default class ActionsController {
   private error(msg: string, type: string = 'ERROR'): JSONObject {
     console.log('ERROR: ' + msg);
     return { type: 'ERROR', data: msg };
+  }
+
+  private async processFire( data:JSONObject, user:User ):Promise<JSONObject> {
+    this.debug( 'processFire' );
+
+    const result:boolean = await user.fireUnit( data.type, data.amount );
+    if( !result ) return { type:'ERROR', message:'Error Firing Unit' };  
+    return { type:'UNIT_FIRED', data: { user:user.trimUnits() } };
+  }
+
+  private async processDestroy( data:JSONObject, user:User ):Promise<JSONObject> {
+    this.debug( 'processDestroy' );
+    
+    const query:string = 'SELECT id FROM buildings WHERE type = ?';
+    const building:RowDataPacket = await dbase.getOne( query, [ data.type ] );
+    const result:boolean = await user.destroyBuilding( building.id, data.amount );
+
+    if( !result ) return { type:'ERROR', message:'Error Destroying Building' };
+    console.log( { type:'BUILDING_DESTROYED', data: { user: user.trimBuildings() } } );
+    return { type:'BUILDING_DESTROYED', data: { user: user.trimBuildings() } };
   }
 
   private async processBuild(data: JSONObject, user: User): Promise<JSONObject> {

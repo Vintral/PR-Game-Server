@@ -422,16 +422,6 @@ export default class User {
     }
   }
 
-  private async takeBuilding( type:string, amount:number ):Promise<boolean> {
-    this.debug( 'takeBuilding: ' + type + ' - ' + amount );
-
-    const query:string = `UPDATE users_rounds_buildings SET quantity = quantity - ? WHERE userid = ? AND roundid = ? AND buildingid = ? AND quantity > ?`;
-    const result:RowDataPacket[] = await dbase.query( query, [ amount, this.id, this.round, type, amount ] );
-    if( result[ 0 ].affectedRows !== 1 ) await dbase.query( `DELETE FROM users_rounds_buildings WHERE userid = ? AND roundid = ? AND buildingid = ?`, [ this.id, this.round, type ] );
-
-    return true;
-  }
-
   public async killUnit( type:number, amount:number ):Promise<boolean> {
       this.debug( 'killUnit: ' + type + ' - ' + amount );
 
@@ -476,29 +466,7 @@ export default class User {
 
       this._redis.publish( 'SET_POWER', JSON.stringify( packet ) );
     }        
-  }
-
-  public async build( building:string, quantity:number ):Promise<boolean> {
-    this.debug( 'build: ' + building + ' - ' + quantity );
-
-    const queries = {
-      update: `UPDATE users_rounds_buildings SET quantity = quantity + ? WHERE userid = ? AND roundid = ? AND buildingid = ?`,
-      insert: `INSERT INTO users_rounds_buildings SET quantity = ?, userid = ?, roundid = ?, buildingid = ?`
-    }
-
-    let result:RowDataPacket = await dbase.query( queries.update, [ quantity, this.id, this.round, building ] );
-    if( result[ 0 ].affectedRows !== 1 ) {
-      result = await dbase.query( queries.insert, [ quantity, this.id, this.round, building ] );
-      if( result[ 0 ].affectedRows !== 1 ) return false;
-    }
-
-    if( this._buildings[ building ] ) this._buildings[ building ] += quantity;
-    else this._buildings[ building ] = quantity;
-
-    await this.updateDeltas();
-
-    return true;
-  }
+  }  
 
   public async recruit( unit:string, quantity:number ):Promise<boolean> {
       this.debug( 'recruit: ' + unit + ' - ' + quantity );
@@ -522,13 +490,84 @@ export default class User {
       return true;
   }
 
+  public async fireUnit( unit:string, quantity:number ):Promise<boolean> {
+    this.debug( 'fireUnit: ' + unit + ' - ' + quantity );
+
+    const queries:JSONObject = {
+      retrieve: `SELECT id FROM units WHERE type = ?`,
+      update: `UPDATE users_rounds_units SET quantity = quantity - ? WHERE userid = ? AND roundid = ? AND unitid = ?`,
+      delete: `DELETE FROM users_rounds_units WHERE quantity <= 0`
+    }    
+
+    let result:RowDataPacket = await dbase.getOne( queries.retrieve, [ unit ] );
+    let unitid:number = result.id;
+
+    result = await dbase.query( queries.update, [ quantity, this.id, this.round, unitid ] );
+    await dbase.query( queries.delete );
+
+    this._units[ unitid ] -= quantity;
+    if( this._units[ unitid ] <= 0 ) delete this._units[ unitid ];
+
+    console.log( this._units );
+    await this.updateDeltas();
+
+    return result[ 0 ].affectedRows === 1;
+  }
+
+  public async build( building:string, quantity:number ):Promise<boolean> {
+    this.debug( 'build: ' + building + ' - ' + quantity );
+    return await this.updateBuilding( building, quantity );
+  }
+
+  private async takeBuilding( type:string, amount:number ):Promise<boolean> {
+    this.debug( 'takeBuilding: ' + type + ' - ' + amount );
+    return await this.updateBuilding( type, amount );    
+  }
+
+  public async destroyBuilding( building:string, quantity:number ):Promise<boolean> {
+    this.debug( 'destroyBuilding: ' + building + ' - ' + quantity, true );
+    return await this.updateBuilding( building, -quantity );
+  }
+
+  private async updateBuilding( building:string, quantity:number ):Promise<boolean> {
+    if( quantity > 0 ) {
+      const queries = {
+        update: `UPDATE users_rounds_buildings SET quantity = quantity + ? WHERE userid = ? AND roundid = ? AND buildingid = ?`,
+        insert: `INSERT INTO users_rounds_buildings SET quantity = ?, userid = ?, roundid = ?, buildingid = ?`
+      }
+  
+      let result:RowDataPacket = await dbase.query( queries.update, [ quantity, this.id, this.round, building ] );
+      if( result[ 0 ].affectedRows !== 1 ) {
+        result = await dbase.query( queries.insert, [ quantity, this.id, this.round, building ] );
+        if( result[ 0 ].affectedRows !== 1 ) return false;
+      }        
+    } else {
+      const query:string = `UPDATE users_rounds_buildings SET quantity = quantity + ? WHERE userid = ? AND roundid = ? AND buildingid = ? AND quantity > ?`;
+      let result:RowDataPacket[] = await dbase.query( query, [ quantity, this.id, this.round, building, quantity ] );
+      
+      if( result[ 0 ].affectedRows !== 1 ) {
+        result = await dbase.query( `DELETE FROM users_rounds_buildings WHERE userid = ? AND roundid = ? AND buildingid = ?`, [ this.id, this.round, quantity ] );
+        if( result[ 0 ].affectedRows !== 1 ) return false;
+      }
+    }
+
+    if( this._buildings[ building ] ) this._buildings[ building ] += quantity;
+    else this._buildings[ building ] = quantity;
+
+    if( this._buildings[ building ] <= 0 ) delete this._buildings[ building ];
+
+    await this.updateDeltas();
+
+    return true;
+  }
+
   public async canAddItem():Promise<boolean> {
       this.debug( 'canAddItem' );
 
       const query:string = `SELECT COUNT(id) AS items FROM users_vault WHERE userid = ?`;
       const result:RowDataPacket = await dbase.getOne( query, [ this.id ] );
       return result.items < this._vaultMax;
-  }
+  }  
 
   public async updateGems( amount:number ):Promise<boolean> {
       this.debug( 'updateGems: ' + amount );
@@ -790,9 +829,9 @@ export default class User {
       gems: this._gems,
       round: this._round,
 
-      resource: this._resources,
-      income: this._incomes,
-      upkeep: this._upkeeps,
+      resources: this._resources,
+      incomes: this._incomes,
+      upkeeps: this._upkeeps,
 
       energy: this._energy,
 
@@ -834,8 +873,23 @@ export default class User {
     };
   }
 
-  private debug( msg:string ):void {
-    if( this._debug )
+  public trimUnits():JSONObject {
+    return {
+      units: this._units,
+      upkeeps: this._upkeeps,
+    }
+  }
+
+  public trimBuildings():JSONObject {
+    return {
+      buildings: this._buildings,
+      incomes: this._incomes,      
+    }
+  }
+
+  private debug( msg:string, force:boolean = false, silence:boolean = false ):void {
+    if( silence ) return;
+    if( this._debug || force )
       logger.logUser( msg );
   }
 }
