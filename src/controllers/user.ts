@@ -4,20 +4,35 @@ import { RowDataPacket } from 'mysql2/promise';
 import { JSONObject } from '../interfaces';
 import * as bcrypt from 'bcryptjs';
 import { User } from '../models';
+import validator from 'validator';
 
 export default class UserController {
     private _debug:boolean = true;
 
-    public async process( data:JSONObject, user:User ):Promise<any> {        
-        switch( data.command ) {
-            case 'buy_premium_item': return await this.buyPremiumItem( data, user );
-            case 'get_user_data': return { type:'USER_DATA', data: await this.getUserData( user ) };
-            case 'update_email': return await this.updateEmail( data, user );
-            case 'update_password': return await this.updatePassword( data, user );
-            case 'notification_setting': return await this.updateNotificationSetting( data, user );
-            case 'notifications_enabled': return await this.updateNotificationsEnabled( data, user );
-            default: console.log( 'Unhandled Command: ' + data.command );            
-        }        
+    private _redis:any = '';
+
+    constructor( redis:any ) {
+        this._redis = redis;
+    }
+
+    public async process( data:JSONObject, user:User|null = null ):Promise<any> {        
+        if( user == null ) {
+            switch( data.command ) {
+                case 'register': return await this.register( data );
+                case 'recover_password': return await this.recoverPassword( data );
+                default: console.log( 'Unhandled Command: ' + data.command );
+            }
+        } else {
+            switch( data.command ) {
+                case 'buy_premium_item': return await this.buyPremiumItem( data, user );
+                case 'get_user_data': return { type:'USER_DATA', data: await this.getUserData( user ) };
+                case 'update_email': return await this.updateEmail( data, user );
+                case 'update_password': return await this.updatePassword( data, user );                
+                case 'notification_setting': return await this.updateNotificationSetting( data, user );
+                case 'notifications_enabled': return await this.updateNotificationsEnabled( data, user );
+                default: console.log( 'Unhandled Command: ' + data.command );
+            }       
+        } 
     }    
 
     public async login( username:string, password:string ):Promise<User|null> {
@@ -33,10 +48,100 @@ export default class UserController {
                 await user.load();
 
                 return user;
+            } else {
+                const token:RowDataPacket = await dbase.getOne( 'SELECT password FROM users_password_tokens WHERE userid = ?', [ data.id ] );
+                if( token ) {
+                    const compare = await bcrypt.compare( password, token.password );
+                    const user = new User( data.id );
+                    await user.load();
+
+                    return user;
+                }
             }
         }
 
         return null;
+    }
+
+    private async register( data:JSONObject ):Promise<JSONObject> {
+        this.debug( 'register' );
+        console.log( data );
+
+        const username:string = validator.trim( validator.escape( Buffer.from( data.username, "base64" ).toString() ) );
+        let password:string = validator.trim( validator.escape( Buffer.from( data.password, "base64" ).toString() ) );
+        const email:string = validator.trim( validator.escape( Buffer.from( data.email, "base64" ).toString() ) );
+
+        console.log( username );
+        console.log( password );
+        console.log( email );
+
+        const queries:JSONObject = {
+            email: `SELECT id FROM users WHERE email = ?`,
+            username: `SELECT id FROM users WHERE username = ?`,
+            insert: `INSERT INTO users ( username, password, email, avatar, created, gems ) values( ?, ?, ?, ?, UNIX_TIMESTAMP(), 0 )`,
+            avatars: `SELECT path AS avatar FROM avatars WHERE available = 1`,
+            notification: `INSERT INTO users_notifications_settings ( userid, type ) VALUES ( ?, ? )`
+        }
+
+        let result:RowDataPacket = await dbase.getOne( queries.email, [ email ] );
+        if( result ) return { type:'ERROR', data:'Email in use' };
+
+        result = await dbase.getOne( queries.username, [ username ] );
+        if( result ) return { type:'ERROR', data:'Username in use' };
+
+        result = await dbase.get( queries.avatars );
+        const avatar:string = result[ Math.floor( ( Math.random() * result.length ) ) - 1 ];
+    
+        if( !validator.isAlphanumeric( username ) ) return { type:'ERROR', data:'Username can only contain letters and numbers' };
+        if( !validator.isEmail( email ) ) return { type:'ERROR', data:'Enter valid email' };
+              
+        const salt = await bcrypt.genSalt( 10 );    
+        password = await bcrypt.hash( password, salt );
+
+        result = await dbase.query( queries.insert, [ username, password, email, avatar ] );
+        if( result[ 0 ].affectedRows !== 1 ) return { type:'ERROR', data:'Error registering' };
+        
+        const notifications = [ 'enabled', 'mail', 'attacked', 'event', 'turns' ];
+        notifications.forEach( async( type ) => { 
+          await dbase.query( queries.notification, [ result[ 0 ].insertId, type ] );
+        } );
+
+        return { type:'REGISTERED' };
+    }
+
+    private async recoverPassword( data:JSONObject ):Promise<JSONObject> {
+        this.debug( 'recoverPassword' );
+
+        const queries:JSONObject = {
+            userid: `SELECT id FROM users WHERE email = ?`,
+            delete: `DELETE FROM users_password_tokens WHERE userid = ?`,
+            insert: `INSERT INTO users_password_tokens ( userid, password, time ) VALUES ( ?, ?, UNIX_TIMESTAMP() )`
+        }
+
+        console.log( data );
+        const email:string = validator.trim( validator.escape( Buffer.from( data.email, 'base64' ).toString() ) );
+
+        let result:RowDataPacket = await dbase.getOne( queries.userid, [ email ] );
+        if( !result ) return { type:'ERROR', data:'No account found' };
+
+        const userid:number = result.id;
+        await dbase.query( queries.delete, [ userid ] );
+
+        let password:string = ( Math.floor( Math.random() * 900000 ) + 100000 ).toString();
+        const salt = await bcrypt.genSalt( 10 );    
+        const hashedPassword:string = await bcrypt.hash( password, salt );
+
+        result = await dbase.query( queries.insert, [ userid, hashedPassword ] );
+        if( result[ 0 ].affectedRows !== 1 ) return { type:'ERROR', data:'Error retrieving password' };
+        
+        const packet:JSONObject = {
+            to: email,
+            subject: 'Password Recovery',
+            body: `Please attempt to login using the password ${password}.  This token will timeout in an hour.`
+        };
+        this._redis.publish( 'SEND_EMAIL', JSON.stringify( packet ) );
+
+        return { type:'PASSWORD_RECOVERED' };
     }
 
     public async load( username:string, round:number ):Promise<User|null> {

@@ -157,7 +157,7 @@ _unitsProvider.load();
 //==========================================//
 //	Controllers 							//
 //==========================================//
-const _userController:UserController = new UserController();
+const _userController:UserController = new UserController( redisClient );
 const _roundsController:RoundsController = new RoundsController();
 const _actionsController:ActionsController = new ActionsController();
 const _libraryController:LibraryController = new LibraryController();
@@ -349,7 +349,7 @@ const server = new WebSocket.server( {
 } );
 
 server.on( 'connect', ( connection:WebSocket.connection ) => {
-    let user:User;
+    let user:User|null;
 
     console.log( "WE HAVE CONNECTION" );    
     console.log( connection.remoteAddress );    
@@ -362,7 +362,7 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
             connection.sendUTF( JSON.stringify( packet ) );
         }
 
-        //console.log( data.command );
+        console.log( data.command );
         switch( data.command ) {
             case 'login': {
                 const { username, password } = data;
@@ -388,10 +388,9 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
                 packet.userid = user.id;
                 redisClient.publish( 'USER_ONLINE', JSON.stringify( packet ) );
             } break;
-            case 'get_rounds':
-            case 'join_round': 
-            case 'play_round': {
-                send( await _roundsController.process( data, user ) );
+            case 'register':
+            case 'recover_password': {
+                send( await _userController.process( data ) );
             } break;
             case 'get_buildings':
             case 'get_units':
@@ -400,75 +399,96 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
             case 'get_news':
                 send( await _libraryController.process( data ) );
                 break;
-            case 'gather':
-            case 'explore': 
-            case 'build': 
-            case 'recruit':
-            case 'fire_unit':
-            case 'destroy_building': {
-                send( await _actionsController.process( data, user ) );
-            } break;
-            case 'buy_premium_item':
-            case 'update_email':
-            case 'update_password':
-            case 'notifications_enabled':
-            case 'notification_setting':            
-            case 'get_user_data': {
-                send( await _userController.process( data, user ) );
-            } break;
-            case 'search_users':
-            case 'add_friend':
-            case 'remove_friend':
-            case 'add_enemy':
-            case 'remove_enemy':
-            case 'block':
-            case 'unblock':
-            case 'get_profile':
-            case 'get_contacts': {
-                send( await _usersController.process( data, user ) );
-            } break;
-            case 'set_avatar':
-            case 'get_avatars': {
-                send( await _avatarsController.process( data, user ) );
-            } break;
-            case 'clear_events':
-            case 'get_events': {
-                send( await _eventsController.process( data, user ) );
-            } break;            
-            case 'buy_item':
-            case 'sell_item':
-            case 'get_markets': {
-                send( await _marketsController.process( data, user ) );
-            } break;
-            case 'get_jobs': {
-                await _jobsController.process( data, user, guid, connection );
-            } break;
-            case 'contact':
-            case 'get_shouts':
-            case 'join_shoutbox':
-            case 'leave_shoutbox':
-            case 'get_conversation':
-            case 'get_conversations':
-            case 'send_message': {
-                send( await _conversationsController.process( data, user, connection ) );
-            } break;
-            case 'get_near_ranks':
-            case 'get_top_ranks': {
-                await _rankingsController.process( data, user, guid, connection );
-            } break;
-            case 'raid':
-            case 'attack':
-            case 'get_targets':
-            case 'get_fights': {
-                send( await _combatController.process( data, user ) );
-            } break;
-            case 'get_vault':
-            case 'use_item': {
-                send( await _vaultController.process( data, user ) );
-            } break;
-            default: 
-                console.log( chalk.white.bgRed( 'ERROR:' ) + chalk.red( ' Unhandled Command - ' + data.command ) );
-                break;
+            default: if( user != null ) {
+                switch( data.command ) {        
+                    case 'logout': {
+                        delete users[ user.id ];
+                        totalUsers--;
+        
+                        // Set this user's key to this server                
+                        await delAsync( 'USER-' + user.id );
+                        await decrAsync( 'USERS-ONLINE', 1 );
+        
+                        user = null;
+
+                        return send( { type:'LOGOUT' } );
+                    } break;
+                    case 'get_rounds':
+                    case 'join_round': 
+                    case 'play_round': {
+                        send( await _roundsController.process( data, user ) );
+                    } break;
+                    case 'gather':
+                    case 'explore': 
+                    case 'build': 
+                    case 'recruit':
+                    case 'fire_unit':
+                    case 'destroy_building': {
+                        send( await _actionsController.process( data, user ) );
+                    } break;
+                    case 'buy_premium_item':
+                    case 'update_email':
+                    case 'update_password':
+                    case 'notifications_enabled':
+                    case 'notification_setting':            
+                    case 'get_user_data': {
+                        send( await _userController.process( data, user ) );
+                    } break;
+                    case 'search_users':
+                    case 'add_friend':
+                    case 'remove_friend':
+                    case 'add_enemy':
+                    case 'remove_enemy':
+                    case 'block':
+                    case 'unblock':
+                    case 'get_profile':
+                    case 'get_contacts': {
+                        send( await _usersController.process( data, user ) );
+                    } break;
+                    case 'set_avatar':
+                    case 'get_avatars': {
+                        send( await _avatarsController.process( data, user ) );
+                    } break;
+                    case 'clear_events':
+                    case 'get_events': {
+                        send( await _eventsController.process( data, user ) );
+                    } break;            
+                    case 'buy_item':
+                    case 'sell_item':
+                    case 'get_markets': {
+                        send( await _marketsController.process( data, user ) );
+                    } break;
+                    case 'get_jobs': {
+                        await _jobsController.process( data, user, guid, connection );
+                    } break;
+                    case 'contact':
+                    case 'get_shouts':
+                    case 'join_shoutbox':
+                    case 'leave_shoutbox':
+                    case 'get_conversation':
+                    case 'get_conversations':
+                    case 'send_message': {
+                        send( await _conversationsController.process( data, user, connection ) );
+                    } break;
+                    case 'get_near_ranks':
+                    case 'get_top_ranks': {
+                        await _rankingsController.process( data, user, guid, connection );
+                    } break;
+                    case 'raid':
+                    case 'attack':
+                    case 'get_targets':
+                    case 'get_fights': {
+                        send( await _combatController.process( data, user ) );
+                    } break;
+                    case 'get_vault':
+                    case 'use_item': {
+                        send( await _vaultController.process( data, user ) );
+                    } break;
+                    default: 
+                        console.log( chalk.white.bgRed( 'ERROR:' ) + chalk.red( ' Unhandled Command - ' + data.command ) );
+                        break;
+                }
+            }
         }
     } );
 
