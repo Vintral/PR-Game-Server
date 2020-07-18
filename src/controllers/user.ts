@@ -33,18 +33,33 @@ export default class UserController {
                 default: console.log( 'Unhandled Command: ' + data.command );
             }       
         } 
-    }    
+    }
+
+    public async recordPushToken( user:User, token:string, os:string ):Promise<boolean> {
+        this.debug( 'recordPushToken: ' + user.id + ' -- ' + token );
+
+        const queries:JSONObject = {
+            update: `UPDATE users_push_tokens SET date = UNIX_TIMESTAMP() WHERE userid = ? AND os = ? AND token = ?`,
+            insert: `INSERT INTO users_push_tokens ( userid, os, token, date ) VALUES ( ?, ?, ?, UNIX_TIMESTAMP() )`
+        }
+
+        let result:RowDataPacket = await dbase.query( queries.update, [ user.id, os, token ] );
+        if( result[ 0 ].affectedRows === 1 ) return true;
+
+        result = await dbase.query( queries.insert, [ user.id, os, token ] );
+        return result[ 0 ].affectedRows === 1;
+    }
 
     public async login( username:string, password:string ):Promise<User|null> {
         username = Buffer.from( username, "base64" ).toString();
         password = Buffer.from( password, "base64" ).toString();
-        this.debug( 'login: ' + username );
+        this.debug( 'login: ' + username + ':' + password );
 
-        const data:RowDataPacket = await dbase.getOne( 'SELECT id, password, username FROM users WHERE BINARY username = ? LIMIT 1', [ username ] );
+        const data:RowDataPacket = await dbase.getOne( 'SELECT id, password, username FROM users WHERE BINARY username = ? LIMIT 1', [ username ] );        
         if( data ) {
             const compare = await bcrypt.compare( password, data.password );
-            if( compare ) {
-                const user = new User( data.id );
+            if( compare ) {                
+                const user = new User( data.id );                
                 await user.load();
 
                 return user;

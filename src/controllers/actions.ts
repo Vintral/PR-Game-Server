@@ -5,12 +5,9 @@ import { JSONObject } from '../interfaces';
 import { User } from '../models';
 
 export default class ActionsController {
-  private _debug: boolean = true;
+  private _debug: boolean = false;
 
-  public async process(data: JSONObject, user: User): Promise<JSONObject> {
-    console.log(data);
-    console.log(data.command);
-
+  public async process(data: JSONObject, user: User): Promise<JSONObject> {    
     switch (data.command) {
       case 'explore': return await this.processExplore(data, user);
       case 'gather': return await this.processGather(data, user);
@@ -25,9 +22,9 @@ export default class ActionsController {
     return {};
   }
 
-  private error(msg: string, type: string = 'ERROR'): JSONObject {
-    console.log('ERROR: ' + msg);
-    return { type: 'ERROR', data: msg };
+  private error( code: string, type: string = 'ERROR'): JSONObject {
+    console.log('ERROR: ' + code );
+    return { type: 'ERROR', data: code };
   }
 
   private async processFire( data:JSONObject, user:User ):Promise<JSONObject> {
@@ -55,12 +52,12 @@ export default class ActionsController {
 
     const { type, quantity } = data;
 
-    if (!quantity || quantity <= 0) return this.error('Invalid amount', 'ERROR_BUILDING');
-    if (!type) return this.error('Invalid Building', 'ERROR_BUILDING');
+    if (!quantity || quantity <= 0) return this.error( 'building-amount' );
+    if (!type) return this.error( 'building-type' );
 
     user.log('Build: ' + type + ':' + quantity);
     
-    if (user.landFree < quantity) return this.error('Not Enough Available Land', 'ERROR_BUILDING');
+    if (user.landFree < quantity) return this.error( 'building-land' );
 
     //Grab the building data and calculate the costs
     const building: RowDataPacket = await dbase.getOne(`SELECT * FROM buildings WHERE type = ?`, [type]);    
@@ -69,9 +66,9 @@ export default class ActionsController {
     const stone: number = Math.ceil(quantity * building.cost_stone);
 
     //Validate that we can afford it
-    if (user.energy < energy) return this.error('You Don\'t Have Enough Energy', 'ERROR_BUILDING');
-    if (user.wood < wood) return this.error('You Don\'t Have Enough Wood', 'ERROR_BUILDING');
-    if (user.stone < stone) return this.error('You Don\'t Have Enough Stone', 'ERROR_BUILDING');
+    if (user.energy < energy) return this.error( 'energy' );
+    if (user.wood < wood) return this.error( 'wood' );
+    if (user.stone < stone) return this.error( 'stone' );
     
     try {
       user.landFree -= quantity;
@@ -80,7 +77,7 @@ export default class ActionsController {
       user.energy -= energy;
       user.energySpent += energy;
       let result:boolean = await user.commit();
-      if( !result ) return this.error( 'Error Building(1)', 'ERROR_BUILDING' );
+      if( !result ) return this.error( 'building-generic' );
 
       result = await user.build( building.id, quantity );
       if( !result ) {
@@ -96,13 +93,14 @@ export default class ActionsController {
           if( stone ) msg += stone + ' stone ';
           if( energy ) msg += energy + ' energy ';
           logger.logError( 'UserID(' + user.id + '): ' + msg );
-        } else return this.error( 'Error Building(2)', 'ERROR_BUILDING' );
+        } else return this.error( 'building-generic' );
       }
 
       await user.updateDeltas();
       
       const message: string = 'Successfully built ' + quantity + ' ' + (quantity !== 1 ? building.plural : building.name);      
       user.log(message);
+      user.logEnergy( 'build', energy );
 
       return { type: 'BUILT', data: { message, user: user.trim() } };
     } catch (err) {
@@ -118,12 +116,12 @@ export default class ActionsController {
 
     const { type, quantity } = data;
 
-    if (!quantity || quantity <= 0) return this.error('Invalid amount', 'ERROR_RECRUITING');
-    if (!type) return this.error('Invalid Building', 'ERROR_RECRUITING');
+    if (!quantity || quantity <= 0) return this.error( 'recruit-amount' );
+    if (!type) return this.error( 'recruit-type' );
 
     user.log('Recruit: ' + type + ':' + quantity);
     
-    if (user.population < quantity - 1) return this.error('Not Enough Population', 'ERROR_RECRUITING');
+    if (user.population < quantity - 1) return this.error( 'recruit-population' );
 
     // Grab the unit data and calculate the costs
     const unit: RowDataPacket = await dbase.getOne(`SELECT * FROM units WHERE type = ?`, [type]);
@@ -133,11 +131,11 @@ export default class ActionsController {
     const recruitable: boolean = unit.recruitable === 1;
     
     //Validate that we can afford it
-    if (user.energy < energy) return this.error('You Don\'t Have Enough Energy', 'ERROR_RECRUITING');
-    if (user.gold < gold) return this.error('You Don\'t Have Enough Gold', 'ERROR_RECRUITING');
-    if (user.population < quantity) return this.error('You Don\'t Have Enough Population', 'ERROR_RECRUITING');
-    if( !available ) return this.error('Unit Not Available', 'ERROR_RECRUITING' );
-    if( !recruitable ) return this.error( 'Unit Not Recruitable', 'ERROR_RECRUITING' );
+    if (user.energy < energy) return this.error( 'energy' );
+    if (user.gold < gold) return this.error( 'gold' );
+    if (user.population < quantity) return this.error( 'recruit-population' );
+    if( !available ) return this.error( 'recruit-available' );
+    if( !recruitable ) return this.error( 'recruit-recruit' );
     
     try {
       user.gold -= gold;
@@ -145,7 +143,7 @@ export default class ActionsController {
       user.energy -= energy;
       user.energySpent += energy;
       let result:boolean = await user.commit();
-      if( !result ) return this.error( 'Error Recruiting(1)', 'ERROR_RECRUITING' );
+      if( !result ) return this.error( 'recruit-generic' );
 
       result = await user.recruit( unit.id, quantity );
       if( !result ) {
@@ -160,7 +158,7 @@ export default class ActionsController {
           if( quantity ) msg += quantity + ' people ';
           if( energy ) msg += energy + ' energy ';
           logger.logError( 'UserID(' + user.id + '): ' + msg );
-        } else return this.error( 'Error Recruiting(2)', 'ERROR_RECRUITING' );
+        } else return this.error( 'recruit-generic' );
       }
 
       await user.updateDeltas();
@@ -168,6 +166,7 @@ export default class ActionsController {
       
       const message: string = 'Successfully recruited ' + quantity + ' ' + (quantity !== 1 ? unit.plural : unit.name);      
       user.log(message);
+      user.logEnergy( 'recruit', energy );
 
       return { type: 'RECRUITED', data: { message, user: user.trim() } };
     } catch (err) {
@@ -181,12 +180,12 @@ export default class ActionsController {
   private async processGather(data: JSONObject, user: User): Promise<JSONObject> {
     this.debug('processGather');
 
-    console.log( user );
+    console.log( user.energy );
 
     const { energy, type } = data;
 
-    if (energy > user.energy) return this.error('You Don\'t Have That Much Energy!');
-    if (energy <= 0) return this.error('Invalid Energy Amount');
+    if (energy > user.energy) return this.error( 'energy' );
+    if (energy <= 0) return this.error( 'energy-invalid' );
 
     let tick:number|undefined = 0;
     switch( type ) {
@@ -257,8 +256,12 @@ export default class ActionsController {
     console.log(delta);*/
 
     let message: string = 'You spent ' + data.energy + ' energy gathering, and found ' + delta + ' ' + data.type;
-    console.log(message);
+    console.log(message);    
+
+    user.log("Gather: " + data.type + ":" + data.energy);
     user.log(message);
+    user.logEnergy( 'gather', data.energy);
+
 
     //user.energy -= data.energy;
     //user.resources[data.type] = parseFloat(user.resources[data.type]) + total;
@@ -267,10 +270,10 @@ export default class ActionsController {
   }
 
   private async processExplore(data: JSONObject, user: User): Promise<JSONObject> {
-    this.debug('processExplore');
+    this.debug('processExplore');    
 
-    if (data.energy > user.energy) return this.error('You Don\'t Have That Much Energy!');
-    if (data.energy <= 0) return this.error('Invalid Energy Amount');
+    if( !data.energy || data.energy <= 0 ) return this.error( 'energy-invalid' );
+    if (data.energy > user.energy) return this.error( 'energy' );
 
     const queries = {
       getLand: `SELECT land FROM users_rounds WHERE userid = ? AND roundid = ?`,
@@ -304,7 +307,7 @@ export default class ActionsController {
         gain = Math.random() * .15 + .05;
       }
 
-      console.log('Gain: ' + gain);
+      this.debug('Gain: ' + gain);
 
       increase += gain;
       land += gain;
@@ -317,14 +320,15 @@ export default class ActionsController {
     user.landFree += +increase;
     user.calculatePower( user.round );
     const commited:boolean = await user.commit();
-    console.log( 'Stored: ' + commited.toString() );
+    this.debug( 'Stored: ' + commited.toString() );
 
     //Prepare the return packet		
     const message = 'You spent ' + data.energy + ' energy exploring, and found ' + (delta === 0 ? ' no land' : delta + ' acre' + (delta == 1 ? '' : 's') + ' of land');
 
     user.logEnergy("explore", data.energy);
+    user.log( 'Explore: ' + data.energy + ' energy' );
     user.log(data.msg);
-
+    
     return { type: 'EXPLORE', data: { message, user: user.trim() } };
   }
 

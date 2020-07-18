@@ -1,4 +1,5 @@
 import { RowDataPacket } from 'mysql2/promise';
+import * as WebSocket from 'websocket';
 import { JSONObject, Resources, Incomes, Upkeeps } from '../interfaces';
 import dbase from '../database';
 import logger from '../logger';
@@ -9,6 +10,10 @@ export default class User {
   //==============================//
   private _debug:boolean = false;
   private _id: number;
+
+  private _connection:any = '';
+  private _token:string = '';
+  private _ip:string = '';
 
   private _round: number = -1;
   private _username: string = '';
@@ -48,6 +53,9 @@ export default class User {
 
   private _dirty:any[] = [];
   //private _dirty:JSONObject[] = [];
+  
+  private _minuteInterval:any = -1;
+  private _5minuteInterval:any = -1;
 
   private _error: string = '';
 
@@ -62,6 +70,15 @@ export default class User {
 
   set redis( value:any ) {
     this._redis = value;
+  }
+
+  set connection( value:WebSocket.connection ) { 
+    this._connection = value;
+    this.startTimers();
+  }
+
+  set token( value:string ) {
+    this._token = value;
   }
 
   get sex(): string { return this._sex; }
@@ -166,13 +183,16 @@ export default class User {
   //==============================//
   constructor( id:number ) {
     this._id = id;
+
+    this.onMinuteTick = this.onMinuteTick.bind( this );
+    this.onFiveMinuteTick = this.onFiveMinuteTick.bind( this );
   }
 
   //==============================//
   //  Methods                     //
   //==============================//
-  public async load( round:number = -1 ): Promise<boolean> {
-    let data = await dbase.getOne( `SELECT username, email, current_round, avatar, gems, sex, users_bots.type AS bot, banned, banned_reason, banned_until, vault_size FROM users LEFT JOIN users_bots ON users_bots.userid = users.id WHERE users.id = ? LIMIT 1`, [ this._id ] );
+  public async load( round:number = -1, skipUnits:boolean = false, skipBuildings:boolean = false ): Promise<boolean> {
+    let data = await dbase.getOne( `SELECT username, email, current_round, avatar, gems, sex, users_bots.type AS bot, banned, banned_reason, banned_until, vault_size FROM users LEFT JOIN users_bots ON users_bots.userid = users.id WHERE users.id = ? LIMIT 1`, [ this._id ] );    
     if (!data) logger.logError( 'User Not Found: ' + this._id );
     else {
       this._username = data.username;
@@ -190,7 +210,76 @@ export default class User {
     }
 
     if( round !== -1 ) this._round = round;
-    if( this._round != 0 ) await this.loadRoundData();
+    if( this._round != 0 ) await this.loadRoundData( skipUnits, skipBuildings );
+    return true;
+  }
+
+  public async recordIP( ip:string ):Promise<void> {
+    this.debug( 'recordIP: ' + ip );
+    
+    this._ip = ip;
+    this.log( 'Logged in: ' + ip, 0 );
+
+    const queries:JSONObject = {
+      update: `UPDATE users_ips SET date = UNIX_TIMESTAMP() WHERE userid = ? AND ip = ?`,
+      insert: `INSERT INTO users_ips ( userid, ip, date ) VALUES ( ?, ?, UNIX_TIMESTAMP() )`
+    }
+
+    let result:RowDataPacket = await dbase.query( queries.update, [ this._id, ip ] );
+    if( result[ 0 ].affectedRows === 1 ) return;
+
+    result = await dbase.query( queries.insert, [ this._id, ip ] );
+    if( result[ 0 ].affectedRows !== 1 ) logger.logError( 'Error recording IP: ' + ip + ' for ' + this._id );
+  }
+
+  public async checkForDupes():Promise<boolean> {
+    this.debug( 'checkForDupes' );
+
+    const queries:JSONObject = {
+      token: `SELECT userid, username FROM users_push_tokens INNER JOIN users ON users.id = userid WHERE token = ? AND userid <> ?`,
+      ip: `SELECT userid FROM users_ips WHERE ip = ? AND userid <> ?`,
+      update: `UPDATE users_dupes SET time = UNIX_TIMESTAMP() WHERE userid = ? AND dupe = ? AND type = ?`,
+      insert: `INSERT INTO users_dupes ( userid, dupe, type, viewed, time ) VALUES ( ?, ?, ?, 0, UNIX_TIMESTAMP() )`,
+      banned: `SELECT username, banned FROM users WHERE id = ?`,
+      ban: `UPDATE users SET banned_until = -1, banned_reason = ?, banned = 1 WHERE id = ?`      
+    }
+
+    let results:RowDataPacket[] = await dbase.get( queries.token, [ this._token, this._id ] );    
+    for( let i:number = 0; i < results.length; i++ ) {      
+      this.debug( 'Marking Self' );
+      let result:RowDataPacket = await dbase.query( queries.update, [ this._id, results[ i ].userid, 1 ] );
+      if( result[ 0 ].affectedRows !== 1 ) {
+        result = await dbase.query( queries.insert, [ this._id, results[ i ].userid, 1 ] );
+        this.log( 'Dupe of: ' + results[ i ].username, 0 );
+      }
+
+      this.debug( 'Marking Other' );
+      result = await dbase.query( queries.update, [ results[ i ].userid, this._id, 1 ] );
+      if( result[ 0 ].affectedRows !== 1 ) {
+        result = await dbase.query( queries.insert, [ results[ i ].userid, this._id, 1 ] );
+
+        // Log being marked a dupe in the other user
+        let query:string = `INSERT INTO users_log SET userid = ?, roundid = ?, action = ?, time = UNIX_TIMESTAMP()`;        
+        await dbase.query( query, [ results[ i ].userid, 0, 'Dupe of ' + this._username ] );
+      }
+
+      this.debug( 'Checking For ban' );
+      result = await dbase.getOne( queries.banned, [ results[ i ].userid ] );      
+      if( result && result.banned ) {
+        await dbase.query( queries.ban, [ 'Dupe of ' + result.username, this._id ] );
+        return false;
+      }
+    }
+
+    /*results = await dbase.get( queries.ip, [ this._ip, this._id ] );
+    console.log( results );
+    for( let i:number = 0; i < results.length; i++ ) {
+      let result:RowDataPacket = await dbase.query( queries.update, [ this._id, results[ i ].userid, 2 ] );
+      if( result[ 0 ].affectedRows !== 1 ) {
+        result = await dbase.query( queries.insert, [ this._id, results[ i ].userid, 2 ] );
+      }
+    }*/
+
     return true;
   }
 
@@ -294,7 +383,14 @@ export default class User {
     }
 }
 
-  public async loadRoundData(): Promise<boolean> {
+public stop():void {
+    this.debug( 'stop' );
+
+    clearInterval( this._minuteInterval );
+    clearInterval( this._5minuteInterval );
+}
+
+  public async loadRoundData( skipUnits:boolean = false, skipBuildings:boolean = false ): Promise<boolean> {
     this.debug( 'loadRoundData: ' + this._round );
 
     const queries = {
@@ -338,8 +434,8 @@ export default class User {
     this._incomes.metal = +data.metal_income;
     this._upkeeps.metal = +data.metal_upkeep;
 
-    await this.loadBuildings();
-    await this.loadUnits();
+    if( !skipBuildings ) await this.loadBuildings();
+    if( !skipUnits) await this.loadUnits();
 
     return true;
   }
@@ -432,6 +528,46 @@ export default class User {
       return true;
   }
 
+  private async onMinuteTick():Promise<void> {
+      this.debug( 'onMinuteTick', true );
+
+      await this.load( this._round, true, true );
+
+      const packet:JSONObject = {
+        type: 'PLAYER_INFO',
+        data: {
+            user: this.trimLight(),
+        }
+      }
+      this._connection.sendUTF( JSON.stringify( packet ) );
+  }
+
+  private async onFiveMinuteTick():Promise<void> {
+    this.debug( 'onMinuteTick', true );
+
+    await this.load( this._round );
+
+    const packet:JSONObject = {
+      type: 'PLAYER_INFO',
+      data: {
+          user: this.trim(),
+      }
+    }
+    this._connection.sendUTF( JSON.stringify( packet ) );
+}
+
+public async update():Promise<void> {
+  this.debug( 'UPDATE' );
+  this.onFiveMinuteTick();
+}
+
+  private async startTimers() {
+      this.debug( 'startTimers' );
+      
+      this._minuteInterval = setInterval( this.onMinuteTick, 60 * 1000 );
+      this._5minuteInterval = setInterval( this.onFiveMinuteTick, 300 * 1000 );      
+  }
+
   public async calculatePower( round:number ) {
     this.debug( 'calculatePower' );
 		
@@ -507,8 +643,7 @@ export default class User {
 
     this._units[ unitid ] -= quantity;
     if( this._units[ unitid ] <= 0 ) delete this._units[ unitid ];
-
-    console.log( this._units );
+    
     await this.updateDeltas();
 
     return result[ 0 ].affectedRows === 1;
@@ -673,9 +808,7 @@ export default class User {
     params.push( this.id );
     params.push( this.round );        
     
-    const query:string = 'UPDATE users_rounds SET' + setClause + whereClause;
-    console.log( query );
-    console.log( params );
+    const query:string = 'UPDATE users_rounds SET' + setClause + whereClause;    
     const result:RowDataPacket = await dbase.query( query, [ ...params ] );    
     if( result[ 0 ].affectedRows === 1 ) {
       // Clear our dirty values
@@ -817,6 +950,14 @@ export default class User {
 			logger.logError( "Error Logging Event: " + query );
 		} else await dbase.commit( connection );		
 	}*/
+
+  public trimLight():JSONObject {
+    return {
+      energy: this._energy,
+      resources: this._resources,
+      population: this._population,
+    }
+  }
 
   public trim():JSONObject {
     //console.log( this );

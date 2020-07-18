@@ -11,10 +11,12 @@ export default class CombatController {
   private _debug: boolean = true;
   private _userController:UserController;
   private _units:UnitsProvider;
+  private _redis:any;
 
-  constructor( controller:UserController, provider:UnitsProvider ) {
+  constructor( controller:UserController, provider:UnitsProvider, redis:any ) {
     this._userController = controller;
     this._units = provider;
+    this._redis = redis;
   }
 
   public async process(data: JSONObject, user: User): Promise<JSONObject> {    
@@ -36,6 +38,8 @@ export default class CombatController {
       }
 
       console.log( chalk.red( 'ERROR: ' + err ) );
+
+      return { type:'ERROR', data:'attack-' + code };
     }
 
     return {};
@@ -48,7 +52,7 @@ export default class CombatController {
     let defender:User|null = await this._userController.load( data.target, user.round );
     if( defender === null ) return {};
 
-    const combat:Combat = new Combat( user, defender, this._units );
+    const combat:Combat = new Combat( user, defender, this._units, this._redis );
     const result:JSONObject = await combat.raid();
 
     return { type:'COMBAT_DONE', data: { user:user.trimDetails(), combat:result } };
@@ -61,7 +65,7 @@ export default class CombatController {
     let defender:User|null = await this._userController.load( data.target, user.round );
     if( defender === null ) return {};
 
-    const combat:Combat = new Combat( user, defender, this._units );
+    const combat:Combat = new Combat( user, defender, this._units, this._redis );
     const result:JSONObject = await combat.attack();
     
     return { type:'COMBAT_DONE', data: { user:user.trimDetails(), combat:result } };

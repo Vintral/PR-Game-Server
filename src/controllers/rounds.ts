@@ -54,12 +54,12 @@ export default class RoundsController {
     }
 
     private async joinRound( data:JSONObject, user:User ):Promise<JSONObject> {
-        this.debug( 'joinRound' );
+        this.debug( 'joinRound' );        
 
         const roundid:number = data.round || -1;
 
         const queries = {
-            createUserRound:`INSERT INTO users_rounds ( userid, roundid, land, land_free, gold, food, wood, metal, stone, energy ) VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )`,
+            createUserRound:`INSERT INTO users_rounds ( userid, roundid, land, land_free, gold, food, wood, metal, stone, energy, active ) VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1 )`,
             updateUser:`UPDATE users SET current_round = ? WHERE id = ?`,
         }
 
@@ -73,6 +73,7 @@ export default class RoundsController {
             result = await dbase.query( queries.updateUser, [ roundid, user.id ] );
             if( result[ 0 ].affectedRows !== 1 ) throw new Error( 'Error(2) Joining Round' );            
 
+            await user.load();
             return { round:round.id, user:user.trim() };
         } catch( err ) { 
             console.log( chalk.red( 'Error: ' + err ) );            

@@ -7,7 +7,7 @@ import { User } from '../models';
 import { Base64 } from 'js-base64';
 
 export default class MarketsController {
-    private _debug:boolean = true;
+    private _debug:boolean = false;
 
     public async process( data:JSONObject, user:User ):Promise<JSONObject> {        
         try {
@@ -114,9 +114,9 @@ export default class MarketsController {
 
     private async getMarketInfo( user:User ):Promise<JSONObject> {
         this.debug( 'getMarketInfo' );
-
+        
         const query:string = `SELECT type, price, ( total_sold - total_bought ) AS available FROM market WHERE roundid = ?`
-        const result:RowDataPacket[] = await dbase.get( query, [ user.round ] );
+        const result:RowDataPacket[] = await dbase.get( query, [ user.round ] );        
         return result;
     }
 

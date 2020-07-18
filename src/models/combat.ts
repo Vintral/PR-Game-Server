@@ -5,6 +5,8 @@ import { User, Army, Unit } from '.';
 import { JSONObject } from '../interfaces';
 import { UnitsProvider } from '../providers';
 
+const { promisify } = require( 'util' );
+
 let UUID = require( 'uuid/v4' );
 
 export default class Combat {
@@ -12,7 +14,7 @@ export default class Combat {
   //  Properties                  //
   //==============================//
   private _debug:boolean = true;
-  private _provider:UnitsProvider;
+  private _provider:UnitsProvider;  
 
   private _id:number = -1;
 
@@ -34,12 +36,15 @@ export default class Combat {
   private _log:string[] = [];
 
   private _redis:any = '';
+  private _getAsync:any = '';
 
   //==============================//
   //  Constructor                 //
   //==============================//
-  constructor( attacker:User, defender:User, provider:UnitsProvider ) {
+  constructor( attacker:User, defender:User, provider:UnitsProvider, redis:any ) {
     this._provider = provider;
+    this._redis = redis;
+    this._getAsync = promisify( this._redis.get ).bind( this._redis );
 
     this._attacker = attacker;
     this._attackingArmy = this.getArmy( this._attacker.units );
@@ -293,6 +298,7 @@ export default class Combat {
 
       this._attacker.energySpent += this._energyRaid;
       this._attacker.energy -= this._energyRaid;
+      this._attacker.logEnergy( 'raid', this._energyRaid );
       await this._attacker.commit();
     } else {
 	    // Turn ratio into percentage
@@ -300,8 +306,11 @@ export default class Combat {
   
       data.losses.resources = await this.processRaidLoot( ratio );			
       data.victory = true;
-		}
-		
+	}
+        
+    const server:string = await this._getAsync( 'USER-' + this._defender.id );
+    console.log( 'SERVER: ' + server );
+
 		//this.logenergy( "raid", energy );
 		//return { success:true, energy:energy };*/
 
@@ -319,6 +328,8 @@ export default class Combat {
     this._attacker.energySpent += this._energyAttack;
     this._attacker.energy -= this._energyAttack;
 
+    this._attacker.logEnergy( 'attack', this._energyAttack );
+
     data.losses = {};
     data.log = fight.log;
     data.losses.units = await this.processUnitLosses( fight.log );
@@ -334,6 +345,16 @@ export default class Combat {
 
       data.losses.buildings = result.destroyed;
       data.losses.land = result.land;
+    }
+
+    const server:string = await this._getAsync( 'USER-' + this._defender.id );
+    console.log( 'SERVER: ' + server );
+    if( server ) {
+        const packet:JSONObject = {
+            command: 'USER_ATTACKED',
+            defender: this._defender.id,
+        }
+        this._redis.publish( server, JSON.stringify( packet ) );
     }
 
     return await this.saveFight( data );

@@ -8,6 +8,7 @@ let UUID = require( 'uuid/v4' );
 //let validator = require('validator');
 //import * as bcrypt from 'bcryptjs';
 import chalk from 'chalk';
+import { RowDataPacket } from 'mysql2/promise';
 import dbase from './database';
 
 const redis = require( 'redis' );
@@ -87,9 +88,18 @@ redisListener.on( "message", async ( channel, message ) => {
         case 'JOBS':
             _jobsController.processResponse( data );
             break;
+        case 'USER_ATTACKED': {
+            console.log( 'USER ATTACKED' );
+            console.log( data );
+    
+            if( users[ data.defender ] ) {
+                //console.log( users[ data.defender ] );
+                users[ data.defender ].user.update();
+            }
+        } break;            
         default: console.log( "UNKNOWN COMMAND: " + data.command ); break;
       }
-      break;      
+      break;    
     case "USER_MESSAGE":
       if( users[ data.userid ] ) {
         users[ data.userid ].connection.emit( data.message );
@@ -168,7 +178,7 @@ const _conversationsController:ChatsController = new ChatsController();
 const _rankingsController:RankingsController = new RankingsController( redisClient );
 const _marketsController:MarketsController = new MarketsController();
 const _jobsController:JobsController = new JobsController( redisClient );
-const _combatController:CombatController = new CombatController( _userController, _unitsProvider );
+const _combatController:CombatController = new CombatController( _userController, _unitsProvider, redisClient );
 const _vaultController:VaultController = new VaultController();
 
 async function test():Promise<void> {
@@ -267,7 +277,6 @@ firebase.initializeApp( {
 //==================================//
 process.stdin.resume(); //so the program will not close instantly
 
-
 async function exitHandler( err:any, options?:any ):Promise<void> {
     console.log( 'exitHandler' );
     
@@ -350,31 +359,90 @@ const server = new WebSocket.server( {
 
 server.on( 'connect', ( connection:WebSocket.connection ) => {
     let user:User|null;
+    let token:string = '';
+    let os:string = '';
 
     console.log( "WE HAVE CONNECTION" );    
     console.log( connection.remoteAddress );    
 
     connection.on( 'message', async payload => {
-        console.log( 'RECEIVED MESSAGE' );
+        //console.log( 'RECEIVED MESSAGE' );
         let data = JSON.parse( payload.utf8Data as string );
+        //console.log( data );
 
         function send( packet:JSONObject ) {
             connection.sendUTF( JSON.stringify( packet ) );
         }
-
-        console.log( data.command );
+        
         switch( data.command ) {
+            case 'login_bot': {
+                console.log( 'LOGIN BOT' );
+                console.log( data );
+
+                let result:RowDataPacket = await dbase.getOne( `SELECT username FROM users WHERE id = ?`, [ data.id ] );
+                data.username = Buffer.from( result.username ).toString( 'base64' );
+                data.password = Buffer.from( data.password ).toString( 'base64' );
+
+                await dbase.query( 'UPDATE users SET current_round = 0 WHERE id = ?', [ data.id ] );
+                await dbase.query( 'DELETE FROM users_rounds WHERE userid = ?', [ data.id ] );
+
+                const { username, password } = data;
+                console.log( username );
+                console.log( password );
+                let tempUser:User|null = await _userController.login( username, password );
+                if( tempUser == null ) return send( { type:'LOGIN_ERROR', data:'Invalid Username/Password' } );                
+                
+                user = tempUser;
+                user.redis = redisClient;
+                user.connection = connection;
+                user.token = '';
+                user.recordIP( connection.remoteAddress );                
+                
+                console.log( user.id );
+
+                let bot_data:RowDataPacket = await dbase.getOne( 'SELECT * FROM users_bots1 WHERE bot = ?', [ user.id ] );
+                console.log( bot_data );
+
+                send( { type:'LOGIN_SUCCESS', data:{ user: user.trim(), bot: bot_data } } );
+
+                users[ user.id ] = {
+                    user,
+                    connection
+                };
+                totalUsers++;                
+
+                // Set this user's key to this server
+                await setAsync( 'USER-' + user.id, guid );
+                await incrAsync( 'USERS-ONLINE', 1 );
+
+                const online:number = await getAsync( 'USERS-ONLINE' );
+                console.log( 'ONLINE: ' + online );
+            } break;
             case 'login': {
                 const { username, password } = data;
+                console.log( username );
+                console.log( password );
                 let tempUser:User|null = await _userController.login( username, password );
                 if( tempUser == null ) return send( { type:'LOGIN_ERROR', data:'Invalid Username/Password' } );
 
+                let result:RowDataPacket = await dbase.getOne( `SELECT COUNT(id) AS total FROM users_push_tokens WHERE token = ? AND userid <> ?`, [ token, tempUser.id ] );
+                if( result && result.total >= 2 ) return send( { type:'ERROR', data:{ code: 'login-too-many' } } );
+                
                 user = tempUser;
                 user.redis = redisClient;
-                send( { type:'LOGIN_SUCCESS', data:user.trim() } );
+                user.connection = connection;
+                user.token = token;
+                user.recordIP( connection.remoteAddress );
+                _userController.recordPushToken( user, token, os );
 
-                users[ user.id ] = connection;
-                totalUsers++;
+                let check:boolean = await user.checkForDupes();
+                if( check ) send( { type:'LOGIN_SUCCESS', data:user.trim() } );
+
+                users[ user.id ] = {
+                    user,
+                    connection
+                };
+                totalUsers++;                
 
                 // Set this user's key to this server
                 await setAsync( 'USER-' + user.id, guid );
@@ -387,6 +455,12 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
                 packet.server = guid;
                 packet.userid = user.id;
                 redisClient.publish( 'USER_ONLINE', JSON.stringify( packet ) );
+            } break;
+            case 'register_push_token': {
+                token = data.token;
+                os = data.os;
+
+                console.log( 'TOKEN: ' + token + '(' + os + ')' );
             } break;
             case 'register':
             case 'recover_password': {
@@ -494,6 +568,7 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
 
     connection.on( 'close', async ( reason, description ) => {
         if( user ) {
+            user.stop();
             delete users[ user.id ];            
             await delAsync( 'USER-' + user.id );
             await decrAsync( 'USERS-ONLINE', 1 );
