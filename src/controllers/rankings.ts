@@ -4,6 +4,8 @@ import { RowDataPacket } from 'mysql2/promise';
 import * as WebSocket from 'websocket';
 import { JSONObject } from '../interfaces';
 import { User } from '../models';
+import { LAND_PRECISION } from '../constants';
+import chalk from 'chalk';
 let UUID = require( 'uuid/v4' );
 
 export default class RankingsController {
@@ -23,6 +25,26 @@ export default class RankingsController {
         }
     }
 
+    private async processRank( rank:number, round:number, data:JSONObject ):Promise<JSONObject> {
+        this.debug( 'processRank: ' + JSON.stringify( data ) );
+
+        rank = Math.floor( rank );
+
+        const username:string = data.split( '|||' )[ 0 ];
+        const power:string = data.split( '|||' )[ 1 ];
+        const response:RowDataPacket = await dbase.getOne( `SELECT avatar, land FROM users INNER JOIN users_rounds ON users_rounds.userid = users.id AND roundid = ? WHERE username = ?`, [ round, username ] );
+        if( !response ) return {};
+
+        const avatar:string = response.avatar;
+        return { 
+            username, 
+            power, 
+            avatar, 
+            land:parseInt( Math.floor( response.land / LAND_PRECISION ).toString() ), 
+            rank
+        };
+    }
+
     public async processResponse( data:JSONObject ):Promise<boolean> {
         this.debug( 'processResponse' );
         console.log( data );
@@ -35,23 +57,40 @@ export default class RankingsController {
             packet.data.page = this._requests[ data.request ].page;
 
             let rank:number = data.start;
-            packet.data.ranks = await Promise.all( data.ranks.map( async( ranking ) => {
+            let round:number = this._requests[ data.request ].round;
+
+            packet.data.ranks = [];            
+            for( let i:number = 0; i < data.ranks.length; i++ ) {
+                packet.data.ranks.push( await this.processRank( rank++, round, data.ranks[ i ] ) );
+            }
+
+            /*packet.data.ranks = await Promise.all( data.ranks.map( async( ranking ) => {
                 rank++;
                 const username:string = ranking.split( '|||' )[ 0 ];
                 const power:string = ranking.split( '|||' )[ 1 ];
                 const response:RowDataPacket = await dbase.getOne( `SELECT avatar, land FROM users INNER JOIN users_rounds ON users_rounds.userid = users.id AND roundid = ? WHERE username = ?`, [ this._requests[ data.request ].round, username ] );
+                console.log( 'username: ' + username );
+                console.log( 'Rank: ' + rank );
+                console.log( response );
+                if( !response ) return {};
+
                 const avatar:string = response.avatar;
 
                 return { 
                     username, 
                     power, 
                     avatar, 
-                    land:parseInt( Math.floor( response.land ).toString() ), 
+                    land:parseInt( Math.floor( response.land / LAND_PRECISION ).toString() ), 
                     rank:rank - 1 
                 };
-            } ) );
+            } ) );*/
             console.log( packet );
-            this._requests[ data.request ].connection.sendUTF( JSON.stringify( packet ) )
+            try{
+                this._requests[ data.request ].connection.sendUTF( JSON.stringify( packet ) )
+            } catch( err ) {
+                console.log( chalk.red( 'RANKING ERROR' ) );
+                console.log( err );
+            }
         }
 
         return false;

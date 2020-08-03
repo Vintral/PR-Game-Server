@@ -77,8 +77,14 @@ redisListener.on( "message", async ( channel, message ) => {
             _rankingsController.processResponse( data );          
             break; 
         case 'JOB_READY':
-            if( users[ data.user ] ) users[ data.user ].sendUTF( JSON.stringify( { type:'JOB_READY' } ) );
-            else {
+            if( users[ data.user ] ) {
+                try {
+                    users[ data.user ].connection.sendUTF( JSON.stringify( { type:'JOB_READY' } ) );
+                } catch( err ) {
+                    console.log( chalk.red( 'JOB ERROR' ) );
+                    console.log( err );
+                }
+            } else {
                 let packet:JSONObject = {};
                 packet.server = guid;
                 packet.userid = data.user;
@@ -160,8 +166,7 @@ redisClient.on( "ready", () => {
 //==========================================//
 //	Providers    							//
 //==========================================//
-const _unitsProvider:UnitsProvider = new UnitsProvider();
-
+const _unitsProvider:UnitsProvider = new UnitsProvider( redisClient );
 _unitsProvider.load();
 
 //==========================================//
@@ -169,7 +174,7 @@ _unitsProvider.load();
 //==========================================//
 const _userController:UserController = new UserController( redisClient );
 const _roundsController:RoundsController = new RoundsController();
-const _actionsController:ActionsController = new ActionsController();
+const _actionsController:ActionsController = new ActionsController( _unitsProvider );
 const _libraryController:LibraryController = new LibraryController();
 const _usersController:UsersController = new UsersController();
 const _avatarsController:AvatarsController = new AvatarsController();
@@ -278,7 +283,7 @@ firebase.initializeApp( {
 process.stdin.resume(); //so the program will not close instantly
 
 async function exitHandler( err:any, options?:any ):Promise<void> {
-    console.log( 'exitHandler' );
+    console.trace( 'exitHandler' );
     
     console.log( options );
   if( options.cleanup ) {        
@@ -366,12 +371,16 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
     console.log( connection.remoteAddress );    
 
     connection.on( 'message', async payload => {
-        //console.log( 'RECEIVED MESSAGE' );
+        console.log( 'RECEIVED MESSAGE' );
         let data = JSON.parse( payload.utf8Data as string );
-        //console.log( data );
+        console.log( data );
 
         function send( packet:JSONObject ) {
-            connection.sendUTF( JSON.stringify( packet ) );
+            try {
+                connection.sendUTF( JSON.stringify( packet ) );
+            } catch( err ) {
+                console.log( chalk.red( 'ERROR: ' + err ) );
+            }
         }
         
         switch( data.command ) {
@@ -383,8 +392,10 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
                 data.username = Buffer.from( result.username ).toString( 'base64' );
                 data.password = Buffer.from( data.password ).toString( 'base64' );
 
-                await dbase.query( 'UPDATE users SET current_round = 0 WHERE id = ?', [ data.id ] );
+                /*await dbase.query( 'UPDATE users SET current_round = 0 WHERE id = ?', [ data.id ] );
                 await dbase.query( 'DELETE FROM users_rounds WHERE userid = ?', [ data.id ] );
+                await dbase.query( 'DELETE FROM users_rounds_units WHERE userid = ?', [ data.id ] );
+                await dbase.query( 'DELETE FROM users_rounds_buildings WHERE userid = ?', [ data.id ] );/* */
 
                 const { username, password } = data;
                 console.log( username );
@@ -578,11 +589,17 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
         }
     } );
 
-    connection.sendUTF( JSON.stringify( { type: 'PING' } ) );
+    try {
+        connection.sendUTF( JSON.stringify( { type: 'PING' } ) );
+    } catch( err ) {
+        console.log( chalk.red( 'CONNECTION ERROR' ) );
+        console.log( err );
+    }
 } );
 
-server.on( 'close', connection => {
+server.on( 'close', connection => {    
     console.log( "WE LOST CONNECTION" );
+    //process.exit( 1 );
 } );
 
 

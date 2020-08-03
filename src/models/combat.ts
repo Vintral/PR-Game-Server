@@ -13,7 +13,7 @@ export default class Combat {
   //==============================//
   //  Properties                  //
   //==============================//
-  private _debug:boolean = true;
+  private _debug:boolean = false;
   private _provider:UnitsProvider;  
 
   private _id:number = -1;
@@ -78,7 +78,10 @@ export default class Combat {
   }
 
   private validate( energy:number ):void {
-    if( this._attacker.energy <= energy ) throw new Error( "1" );
+    if( this._attacker.energy < energy ) {
+        this.debug( 'ENERGY: ' + this._attacker.energy + ' --- NEED: ' + energy );
+        throw new Error( "1" );
+    }
     if( ( this._defender.power > this._attacker.power * 2 ) || ( this._defender.power < this._attacker.power / 2 ) ) throw new Error( "2" );
     if( !this._attacker.units || Object.keys( this._attacker.units ).length === 0 ) throw new Error( "3" );
   }
@@ -99,44 +102,48 @@ export default class Combat {
       if( fight.o == 'a' ) defenderLosses.push( fight );
     } );
 
-    console.log( '--------------------------' );
-    console.log( attackerLosses );
-    console.log( defenderLosses );
-    console.log( '--------------------------' );
+    if( this._debug ) {
+        console.log( '--------------------------' );
+        console.log( attackerLosses );
+        console.log( defenderLosses );
+        console.log( '--------------------------' );
+    }
     
     // Go through all the attacker's losses and collapse down duplicates
     // Then cycle through and "kill" them
     losses = Array<number>();    
     attackerLosses.forEach( fight => {
-      console.log( fight );
+      if( this._debug ) console.log( fight );
       if( losses[ fight.a ] ) losses[ fight.a ] += fight.k;
       else losses[ fight.a ] = fight.k;      
     } );
     ret.attacker = losses;
-    console.log( losses );
+    if( this._debug ) console.log( losses );
+    if( this._debug ) console.log( this._attackingArmy );
     for( let i:number = 0; i < losses.length; i++ ) {
-      console.log( i );
+        if( this._debug ) console.log( i );
+        if( this._debug ) console.log( this._attackingArmy.units[ i ] );
       this._attacker.killUnit( this._attackingArmy.units[ i ].id, losses[ i ] );
     }
 
-    console.log( '--------------------------' );
+    if( this._debug ) console.log( '--------------------------' );
 
     // Go through all the defender's losses and collapse down duplicates
     // Then cycle through and "kill" them
     losses = Array<number>();
     defenderLosses.forEach( fight => {
-      console.log( fight );
+        if( this._debug ) console.log( fight );
       if( losses[ fight.d ] ) losses[ fight.d ] += fight.k;
       else losses[ fight.d ] = fight.k;
     } );
-    console.log( losses );
+    if( this._debug ) console.log( losses );
     ret.defender = losses;
     for( let i:number = 0; i < losses.length; i++ ) {
-      console.log( i );
+        if( this._debug ) console.log( i );
       this._defender.killUnit( this._defendingArmy.units[ i ].id, losses[ i ] );
     }
 
-    console.log( '--------------------------' );
+    if( this._debug ) console.log( '--------------------------' );
 
     return ret;
   }
@@ -186,6 +193,7 @@ export default class Combat {
       
       this._attacker.energySpent += this._energyRaid;
       this._attacker.energy -= this._energyRaid;
+      this._attacker.logEnergy( 'raid', this._energyRaid );
       this._attacker.wood += wood;
       this._attacker.gold += gold;
       this._attacker.food += food;
@@ -228,10 +236,6 @@ export default class Combat {
     let ret:JSONObject = {};
     
     if( this._defendingArmy.units.length === 0 ) return { victory:true };
-      
-    
-    let unit = "";
-    let combat;
     
     const attacker:Unit[] = this._attackingArmy.units;
     const defender:Unit[] = this._defendingArmy.units;
@@ -243,10 +247,12 @@ export default class Combat {
     let target:number;
     let log:Array<JSONObject> = new Array<JSONObject>();
     
-    console.log( this._attackingArmy );
-    console.log( this._attackingArmy.power );
-    console.log( this._defendingArmy );
-    console.log( this._defendingArmy.power );
+    if( this._debug ) {
+        console.log( this._attackingArmy );
+        console.log( this._attackingArmy.power );
+        console.log( this._defendingArmy );
+        console.log( this._defendingArmy.power );
+    }
 
     while( offset < attacker.length || offset < defender.length ) {      
       if( offset < attacker.length ) {
@@ -258,7 +264,7 @@ export default class Combat {
       if( offset < defender.length ) {
         target = offset < attacker.length ? offset : attacker.length - 1;
         fight = defender[ offset ].fight( attacker[ target ] );
-        if( fight ) log.push( { o:'d', d:target, a:offset, ...fight } );
+        if( fight ) log.push( { o:'d', d:offset, a:target, ...fight } );
       }
         
       offset++;
@@ -273,6 +279,9 @@ export default class Combat {
     this.debug( 'raid' );
 
     this.validate( this._energyRaid );
+
+    this._attacker.log( 'Raided: ' + this._defender.username );
+    this._defender.log( 'Raided by: ' + this._attacker.username );
 
     this._attackingArmy.clear( 1 );
     	
@@ -300,19 +309,29 @@ export default class Combat {
       this._attacker.energy -= this._energyRaid;
       this._attacker.logEnergy( 'raid', this._energyRaid );
       await this._attacker.commit();
+
+      this._attacker.log( 'Raid Failed Lost: ' + JSON.stringify( data.losses.units ) );
+      this._defender.log( 'Raid Failed Killed: ' + JSON.stringify( data.losses.units ) );
     } else {
 	    // Turn ratio into percentage
-			ratio /= 100;
+		ratio /= 100;
   
-      data.losses.resources = await this.processRaidLoot( ratio );			
+      data.losses.resources = await this.processRaidLoot( ratio );
+
+      this._attacker.log( 'Gained: ' + JSON.stringify( data.losses.resources ) );
+      this._defender.log( 'Lost: ' + JSON.stringify( data.losses.resources ) );
+
       data.victory = true;
 	}
         
     const server:string = await this._getAsync( 'USER-' + this._defender.id );
-    console.log( 'SERVER: ' + server );
+    if( this._debug ) console.log( 'SERVER: ' + server );
 
 		//this.logenergy( "raid", energy );
-		//return { success:true, energy:energy };*/
+        //return { success:true, energy:energy };*/
+        
+    this._attacker.calculatePower( this._attacker.round );
+    this._defender.calculatePower( this._attacker.round );
 
     return await this.saveFight( data );
   }
@@ -321,14 +340,16 @@ export default class Combat {
     this.debug( 'attack' );
 
     this.validate( this._energyAttack );
-    			
+
+    this._attacker.log( 'Attacked: ' + this._defender.username );
+    this._defender.log( 'Attacked by: ' + this._attacker.username );
+
     let data:JSONObject = this.prepData( 'fight' );
     let fight = await this.processCombat();
 
     this._attacker.energySpent += this._energyAttack;
     this._attacker.energy -= this._energyAttack;
-
-    this._attacker.logEnergy( 'attack', this._energyAttack );
+    this._attacker.logEnergy( 'attack', this._energyAttack );    
 
     data.losses = {};
     data.log = fight.log;
@@ -345,10 +366,13 @@ export default class Combat {
 
       data.losses.buildings = result.destroyed;
       data.losses.land = result.land;
-    }
+
+      this._attacker.log( 'Attack Success: gained ' + gain + ' acres' );
+      this._defender.log( 'Attack Lost: lost ' + gain + ' acres' );
+    } else await this._attacker.commit();
 
     const server:string = await this._getAsync( 'USER-' + this._defender.id );
-    console.log( 'SERVER: ' + server );
+    if( this._debug ) console.log( 'SERVER: ' + server );
     if( server ) {
         const packet:JSONObject = {
             command: 'USER_ATTACKED',
@@ -356,6 +380,9 @@ export default class Combat {
         }
         this._redis.publish( server, JSON.stringify( packet ) );
     }
+
+    this._attacker.calculatePower( this._attacker.round );
+    this._defender.calculatePower( this._attacker.round );
 
     return await this.saveFight( data );
 
@@ -461,7 +488,7 @@ export default class Combat {
   private async saveFight( data:JSONObject ):Promise<JSONObject> {
     this.debug( 'saveFight' );
 
-    console.log( JSON.stringify( data ) );
+    if( this._debug ) console.log( JSON.stringify( data ) );
 
     const guid:String = UUID();
     const query:string = 'INSERT INTO fights ( guid, type, attacker, attacking_army, defender, defending_army, roundid, winner, combat, result, time, attacker_view, defender_view ) VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, UNIX_TIMESTAMP(), 1, 1 )';

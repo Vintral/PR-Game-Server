@@ -13,6 +13,9 @@ class Combat {
         this.defender = defender;
         this.round = $round;
 
+        this.attackingPower = 0;
+        this.defendingPower = 0;
+
         this.error = "";
 
         this.attackEnergy = 10;
@@ -102,9 +105,7 @@ class Combat {
 				}
 			}
 			
-			await this.database.commit( connection );			
-
-			this.calculatePower( this.id, this.round );
+			await this.database.commit( connection );
 			
 			data.log = Buffer.from( data.log ).toString( "base64" );
 			data.result = Buffer.from( data.result ).toString( "base64" );
@@ -180,7 +181,8 @@ class Combat {
 		
 		this.saveFight( defender, "raid", data.victory, data.log, data.result );
 		
-		this.logenergy( "raid", energy );
+        this.logenergy( "raid", energy );
+            
 		return { success:true, energy:energy };
 	}
 
@@ -271,9 +273,6 @@ class Combat {
 			const log = Buffer.from( combat.log ).toString( "base64" );
 			outcome = Buffer.from( outcome ).toString( "base64" );
 			this.saveFight( defender, "attack", true, log, outcome );					
-			
-			this.calculatePower( this.id, this.round );
-			this.calculatePower( defender.id, this.round );
 
 			this.updateDeltas();
 			this.updateDeltas( defender.id );
@@ -340,8 +339,8 @@ class Combat {
         this.attacker.army = attackingArmy;
         this.defender.army = defendingArmy;
 
-        this.attacker.power = attackingArmy.reduce( ( power, unit ) => { return power + ( unit.quantity * unit.power ) }, 0 );
-        this.defender.power = defendingArmy.reduce( ( power, unit ) => { return power + ( unit.quantity * unit.power ) }, 0 );
+        this.attackingPower = attackingArmy.reduce( ( power, unit ) => { return power + ( unit.quantity * unit.power ) }, 0 );
+        this.defendingPower = defendingArmy.reduce( ( power, unit ) => { return power + ( unit.quantity * unit.power ) }, 0 );
 
         console.log( this.attacker );
     }
@@ -549,12 +548,16 @@ class Combat {
 
     async saveFight( $defender, $type, $victory, $log, $result ) {		
 		let fid = guid.v4();
-		let logQuery = "INSERT INTO fights SET guid = '" + fid + "', type = '" + $type + "', attacker = " + this.id + ", defender = " + $defender.id + ", roundid = " + this.round + ", winner = " + ( $victory ? this.id : $defender.id ) + ", combat = '" + $log + "', result = '" + $result + "', time = UNIX_TIMESTAMP()";
+		let logQuery = "INSERT INTO fights SET guid = '" + fid + "', type = '" + $type + "', attacker = " + this.id + ", defender = " + $defender.id + ", roundid = " + this.round + ", winner = " + ( $victory ? this.id : $defender.id ) + ", combat = '" + $log + "', result = '" + $result + "', time = UNIX_TIMESTAMP()";        
 
 		const connection = await this.database.beginTransaction();
 		const result = await connection.query( logQuery );
 		if( result && result[ 0 ].affectedRows == 1 ) {
-			await this.database.commit( connection );
+            await this.database.commit( connection );
+            
+            this.attacker.calculatePower( this.round );
+            this.defender.calculatePower( this.round );
+
 			this.dispatchCombatFinalized( fid, $victory, $result );
 		} else {
 			await this.database.rollback( connection );

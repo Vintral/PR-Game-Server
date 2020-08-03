@@ -6,7 +6,14 @@ import { JSONObject } from '../interfaces';
 
 export default class UnitsProvider {
     private _debug:boolean = true;
-    private _units:JSONObject = {};
+    private _unitsByID:JSONObject = {};
+    private _unitsByType:JSONObject = {};
+
+    private _redis:any;
+
+    constructor( redis:any ) {
+        this._redis = redis;
+    }
 
     public async load():Promise<boolean> {
         this.debug( 'load' );
@@ -14,17 +21,22 @@ export default class UnitsProvider {
         const query:string = `SELECT * FROM units`;
         const result:RowDataPacket = await dbase.get( query );
 
-        this._units = {};
+        this._unitsByID = {};
         const units:Unit[] = result.forEach( unit => {
             unit = new Unit( unit );
-            this._units[ unit.id ] = unit;
+            this._unitsByID[ unit.id ] = unit;
+            this._unitsByType[ unit.type ] = unit;
         } );
 
         return true;
     }
 
     public get( id:number ):Unit|null {
-        return this._units[ id ];
+        return this._unitsByID[ id ];
+    }
+
+    public getByType( type:string ):Unit|null {
+        return this._unitsByType[ type ];
     }
 
     private debug( msg:string, force:boolean = false, silence:boolean = true ):void {

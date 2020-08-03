@@ -183,6 +183,7 @@ import chalk from 'chalk';
 import logger from './logger';
 
 import dotenv from "dotenv";
+import { JSONObject } from './interfaces';
 dotenv.config();
 
 class Database {
@@ -193,14 +194,16 @@ class Database {
     this._debug = false;
     this.debug( "Created" );
 
-    this.pool = mysql.createPool( {
+    const options:JSONObject = {
       user: process.env.DB_USER,
       host: process.env.DB_HOST,
       database: process.env.DB_NAME,
       password: process.env.DB_PASSWORD,
       port: process.env.DB_PORT as unknown as number,
       connectionLimit: process.env.DB_CONNECTION_LIMIT as unknown as number,
-    } );
+    }; 
+    this.pool = mysql.createPool( options );
+    console.log( options );
 
     this.addListeners();
     this.build();
@@ -217,12 +220,20 @@ class Database {
     this.debug( "Query: " + query, debug || false );
 
     if( !params ) params = [];
-    let ret = await this.pool.query( query, params );
-    this.debug( "Query Done: " + query, debug || false );
-    return ret;
+    try{
+        let ret = await this.pool.query( query, params );
+        this.debug( "Query Done: " + query, debug || false );
+        return ret;
+    } catch( err ) {
+        logger.logError( err );
+        console.log( 'DATABASE ERROR' );
+        console.log( err );
+    }
   }
 
   async getConnection():Promise<any> {
+    logger.logDatabase( 'getConnection' );
+
     const connection:any = await this.pool.getConnection();
     return connection;
   }
@@ -233,11 +244,18 @@ class Database {
     return data[ 0 ];
   }
 
-  async get( query:string, params?:Array<any> ):Promise<mysql.RowDataPacket[]> {
+  async get( query:string, params?:Array<any> ):Promise<any> {
     if( !params ) params = [];
     this.debug( "Get: " + query );
-    const data:mysql.RowDataPacket[] = await this.pool.query( query, params );
-    return data[ 0 ];
+
+    try{ 
+      const data:mysql.RowDataPacket[] = await this.pool.query( query, params );
+      return data[ 0 ];
+    } catch( err ) {
+      logger.logError( err );
+      console.log( 'DATABASE ERROR' );
+      console.log( err );
+    }    
   }
 
   async build():Promise<any> {

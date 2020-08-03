@@ -5,6 +5,7 @@ import { RowDataPacket } from 'mysql2/promise';
 import { JSONObject } from '../interfaces';
 import chalk from 'chalk';
 import { User } from '../models';
+import { PRECISION, LAND_PRECISION } from '../constants';
 
 export default class RoundsController {
     private _debug:boolean = true;
@@ -22,7 +23,7 @@ export default class RoundsController {
     private async getActiveRounds( user:User ):Promise<JSONObject> {
         this.debug( 'getActiveRounds' );        
 
-        const query:string = `SELECT rounds.id, rounds.energy, rounds.max_energy, IF( roundid IS NOT NULL, 1, 0 ) AS playing FROM rounds LEFT JOIN ( SELECT id, roundid FROM users_rounds WHERE userid = ? ) as u ON rounds.id = u.roundid  WHERE active = 1`;
+        const query:string = `SELECT rounds.id, rounds.energy, rounds.max_energy, IF( roundid IS NOT NULL, 1, 0 ) AS playing FROM rounds LEFT JOIN ( SELECT id, roundid FROM users_rounds WHERE userid = ? ) as u ON rounds.id = u.roundid WHERE active = 1`;
         const result:RowDataPacket[] = await dbase.get( query, [ user.id ] );
 
         let rounds:Array<JSONObject> = new Array<Round>();
@@ -67,7 +68,7 @@ export default class RoundsController {
             const round:Round|null = await this.loadRound( roundid, user );
             if( round == null ) throw new Error( 'Invalid Round' );
             
-            let result:RowDataPacket[] = await dbase.query( queries.createUserRound, [ user.id, round.id, round.land, round.land, round.gold, round.food, round.wood, round.metal, round.stone, round.maxEnergy ] );
+            let result:RowDataPacket[] = await dbase.query( queries.createUserRound, [ user.id, round.id, round.land * LAND_PRECISION, round.land * LAND_PRECISION, round.gold, round.food, round.wood, round.metal, round.stone, round.maxEnergy ] );
             if( result[ 0 ].affectedRows !== 1 ) throw new Error( 'Error(1) Joining Round' );
 
             result = await dbase.query( queries.updateUser, [ roundid, user.id ] );

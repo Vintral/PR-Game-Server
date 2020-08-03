@@ -45,7 +45,11 @@ export default class MarketsController {
             const price:number = amount * result.price;
             const available:number = parseInt( result.available );
 
-            if( user.gold < price * amount ) return this.error( `Cannot Afford` );
+            if( user.gold < price  ) {
+                console.log( 'USER GOLD: ' + user.gold );
+                console.log( 'COST: ' + price );
+                return this.error( `Cannot Afford` );
+            }
             if( amount > available ) return this.error( 'Not Enough Available' );
 
             const before:number = parseInt( user.gold.toString() );

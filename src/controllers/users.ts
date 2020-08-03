@@ -3,6 +3,7 @@ import dbase from '../database';
 import { RowDataPacket } from 'mysql2/promise';
 import { JSONObject } from '../interfaces';
 import { User } from '../models';
+import { LAND_PRECISION } from '../constants';
 
 export default class UsersController {
     private _debug:boolean = true;
@@ -35,8 +36,8 @@ export default class UsersController {
         const page:number = +data.page || 1;
         const perPage:number = +data.perPage || 30;
 
-        const query:string = `SELECT username, avatar, power, land FROM ( SELECT username, avatar, power, land, ( CASE WHEN username = ? THEN 1 WHEN username LIKE ? THEN 2 WHEN username LIKE ? THEN 3 END ) AS score FROM users LEFT JOIN users_rounds ON users_rounds.userid = users.id AND roundid = ? ) AS results WHERE score >= 1 ORDER BY score LIMIT ?,?`;
-        const results:RowDataPacket[] = await dbase.get( query, [ needle, needle + '%', '%' + needle + '%', user.round, ( page - 1 ) * perPage, perPage ] );
+        const query:string = `SELECT username, avatar, power, land / ? AS land FROM ( SELECT username, avatar, power, land, ( CASE WHEN username = ? THEN 1 WHEN username LIKE ? THEN 2 WHEN username LIKE ? THEN 3 END ) AS score FROM users LEFT JOIN users_rounds ON users_rounds.userid = users.id AND roundid = ? ) AS results WHERE score >= 1 ORDER BY score LIMIT ?,?`;
+        const results:RowDataPacket[] = await dbase.get( query, [ LAND_PRECISION, needle, needle + '%', '%' + needle + '%', user.round, ( page - 1 ) * perPage, perPage ] );
 
         return {
             page,
@@ -52,11 +53,11 @@ export default class UsersController {
         console.log( data.name );
         
         const queries = {
-            info: `SELECT users.id, username, avatar, power, land, gold, food, wood, stone, metal FROM users LEFT JOIN users_rounds ON users_rounds.userid = users.id AND roundid = ? WHERE username = ?`,
+            info: `SELECT users.id, username, avatar, power, land / ? AS land, gold, food, wood, stone, metal FROM users LEFT JOIN users_rounds ON users_rounds.userid = users.id AND roundid = ? WHERE username = ?`,
             contact: `SELECT type FROM contacts WHERE userid = ? AND contactid = ?`
         };
 
-        const userData:RowDataPacket = await dbase.getOne( queries.info, [ user.round, data.name ] );
+        const userData:RowDataPacket = await dbase.getOne( queries.info, [ LAND_PRECISION, user.round, data.name ] );
         console.log( userData );
 
         const ret:JSONObject = {};

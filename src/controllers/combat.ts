@@ -6,6 +6,7 @@ import { User, Combat } from '../models';
 import { UserController } from '.';
 import { UnitsProvider } from '../providers';
 import chalk from 'chalk';
+import { LAND_PRECISION } from '../constants';
 
 export default class CombatController {
   private _debug: boolean = true;
@@ -29,7 +30,11 @@ export default class CombatController {
         default: console.log( 'Unhandled Command: ' + data.command ); break;
       }
     } catch( err ) {    
-      const code:number = parseInt( ( err as Error ).message );      
+      const code:number = parseInt( ( err as Error ).message );
+      if( isNaN( code ) ) {
+        console.log( 'ERROR: ' + err );
+        process.exit( 1 );
+      }
       
       switch( code ) {
         case 1: err = 'Not Enough Energy'; break;
@@ -49,11 +54,16 @@ export default class CombatController {
     this.debug( 'raid' );
     
     console.log( data );
+    console.log( user.energy );
+    user.dumpEnergy();
+
     let defender:User|null = await this._userController.load( data.target, user.round );
     if( defender === null ) return {};
 
     const combat:Combat = new Combat( user, defender, this._units, this._redis );
     const result:JSONObject = await combat.raid();
+
+    user.dumpEnergy();
 
     return { type:'COMBAT_DONE', data: { user:user.trimDetails(), combat:result } };
   }
@@ -62,20 +72,24 @@ export default class CombatController {
     this.debug( 'attack' );
 
     console.log( data );
+    user.dumpEnergy();
+
     let defender:User|null = await this._userController.load( data.target, user.round );
     if( defender === null ) return {};
 
     const combat:Combat = new Combat( user, defender, this._units, this._redis );
     const result:JSONObject = await combat.attack();
     
+    user.dumpEnergy();
+
     return { type:'COMBAT_DONE', data: { user:user.trimDetails(), combat:result } };
   }
 
   private async getTargets( user:User ):Promise<JSONObject> {
     this.debug( 'getTargets' );    
 
-    const query:string = `SELECT username, avatar, power, land FROM users INNER JOIN users_rounds ON users.id = users_rounds.userid WHERE users.id <> ? AND roundid = ? AND power >= ? AND power <= ? LIMIT 15`;
-    const result:RowDataPacket[] = await dbase.get( query, [ user.id, user.round, Math.ceil( user.power / 2 ), user.power * 2 ] );    
+    const query:string = `SELECT username, avatar, power, land / ? AS land FROM users INNER JOIN users_rounds ON users.id = users_rounds.userid WHERE users.id <> ? AND roundid = ? AND power >= ? AND power <= ? LIMIT 15`;
+    const result:RowDataPacket[] = await dbase.get( query, [ LAND_PRECISION, user.id, user.round, Math.ceil( user.power / 2 ), user.power * 2 ] );    
 
     return { type:'TARGETS', data:result };
   }

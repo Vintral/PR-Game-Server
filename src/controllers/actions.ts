@@ -2,10 +2,18 @@ import logger from '../logger';
 import dbase from '../database';
 import { RowDataPacket } from 'mysql2/promise';
 import { JSONObject } from '../interfaces';
-import { User } from '../models';
+import { User, Unit } from '../models';
+import { UnitsProvider } from '../providers';
+import { LAND_PRECISION } from '../constants';
 
 export default class ActionsController {
   private _debug: boolean = false;
+
+  private _units:UnitsProvider;
+
+  constructor( units:UnitsProvider ) {
+    this._units = units;
+  }
 
   public async process(data: JSONObject, user: User): Promise<JSONObject> {    
     switch (data.command) {
@@ -50,7 +58,10 @@ export default class ActionsController {
   private async processBuild(data: JSONObject, user: User): Promise<JSONObject> {
     this.debug('processBuild');
 
+    console.log( data );
     const { type, quantity } = data;
+
+    user.dumpEnergy();
 
     if (!quantity || quantity <= 0) return this.error( 'building-amount' );
     if (!type) return this.error( 'building-type' );
@@ -102,6 +113,8 @@ export default class ActionsController {
       user.log(message);
       user.logEnergy( 'build', energy );
 
+      user.dumpEnergy();
+
       return { type: 'BUILT', data: { message, user: user.trim() } };
     } catch (err) {
       logger.logError('Error: ' + err);
@@ -112,7 +125,9 @@ export default class ActionsController {
   }
 
   private async processRecruit(data: JSONObject, user: User): Promise<JSONObject> {
-    this.debug('processRecruit');
+    this.debug('processRecruit', true);
+
+    console.log( data );
 
     const { type, quantity } = data;
 
@@ -121,44 +136,52 @@ export default class ActionsController {
 
     user.log('Recruit: ' + type + ':' + quantity);
     
-    if (user.population < quantity - 1) return this.error( 'recruit-population' );
+    //if (user.population < quantity - 1) return this.error( 'recruit-population' );
 
     // Grab the unit data and calculate the costs
-    const unit: RowDataPacket = await dbase.getOne(`SELECT * FROM units WHERE type = ?`, [type]);
-    const energy: number = Math.ceil( quantity * unit.cost_points / user.recruitPower );
-    const gold: number = Math.ceil( quantity * unit.cost_gold );
-    const available: boolean = unit.available === 1;
-    const recruitable: boolean = unit.recruitable === 1;
+    const unit:Unit|null = this._units.getByType( type );
+    if( unit == null ) return this.error( 'recruit-not-found' );
+    const energy: number = Math.ceil( quantity * unit?.costPoints / user.recruitPower );
+    const gold: number = Math.ceil( quantity * unit.costGold );
+    const available: boolean = unit.available;
+    const recruitable: boolean = unit.recruitable;
+
+    console.log( unit );    
     
+    user.dumpEnergy();
+
     //Validate that we can afford it
     if (user.energy < energy) return this.error( 'energy' );
     if (user.gold < gold) return this.error( 'gold' );
-    if (user.population < quantity) return this.error( 'recruit-population' );
+    //if (user.population < quantity) return this.error( 'recruit-population' );
     if( !available ) return this.error( 'recruit-available' );
     if( !recruitable ) return this.error( 'recruit-recruit' );
     
     try {
       user.gold -= gold;
-      user.population -= quantity;
+      //user.population -= quantity;
       user.energy -= energy;
       user.energySpent += energy;
       let result:boolean = await user.commit();
-      if( !result ) return this.error( 'recruit-generic' );
+      if( !result ) return this.error( 'recruit-generic1' );
 
-      result = await user.recruit( unit.id, quantity );
+      user.dumpEnergy();
+
+      result = await user.recruit( unit.id.toString(), quantity );
       if( !result ) {
         user.gold += gold;
-        user.population += quantity;        
+        //user.population += quantity;
         user.energy += energy;
-        user.energySpent -= energy;
+        user.energySpent -= energy;        
         result = await user.commit();
+        user.dumpEnergy();
         if( !result ) {
           let msg:string = 'Lost ';
           if( gold ) msg += gold + ' gold ';
-          if( quantity ) msg += quantity + ' people ';
+          //if( quantity ) msg += quantity + ' people ';
           if( energy ) msg += energy + ' energy ';
           logger.logError( 'UserID(' + user.id + '): ' + msg );
-        } else return this.error( 'recruit-generic' );
+        } else return this.error( 'recruit-generic2' );
       }
 
       await user.updateDeltas();
@@ -167,6 +190,8 @@ export default class ActionsController {
       const message: string = 'Successfully recruited ' + quantity + ' ' + (quantity !== 1 ? unit.plural : unit.name);      
       user.log(message);
       user.logEnergy( 'recruit', energy );
+
+      user.dumpEnergy();
 
       return { type: 'RECRUITED', data: { message, user: user.trim() } };
     } catch (err) {
@@ -178,9 +203,12 @@ export default class ActionsController {
   }
 
   private async processGather(data: JSONObject, user: User): Promise<JSONObject> {
-    this.debug('processGather');
+    this.debug('processGather: ' + user.id );
+    
 
-    console.log( user.energy );
+    user.dumpEnergy();
+    console.log( user.energy );    
+    console.log( user._dirty );
 
     const { energy, type } = data;
 
@@ -198,12 +226,15 @@ export default class ActionsController {
     if( !tick || tick < 1 ) tick = 1;
 
     const random: number = Math.floor(Math.random() * 40) + 80;
-    let total: number = (tick * energy * random) / 100.0;
+    let total: number = Math.floor( (tick * energy * random) / 100.0 );
     if (total < 1) total = 1;
 
     console.log( 'Total: ' + total );
 
     user.energy -= energy;
+    user.energySpent += energy;
+    user.logEnergy( 'gather', energy );
+
     switch( type ) {
       case 'wood': user.wood += total; break;
       case 'stone': user.stone += total; break;
@@ -214,8 +245,11 @@ export default class ActionsController {
 
     //console.log( type );
     //user[ type ] += total;
+    console.log( user._dirty );
     const success:boolean = await user.commit();
     console.log( 'Stored?: ' + success );
+
+    user.dumpEnergy();
 
     let delta: number = Math.floor(parseFloat(user.resources[data.type]) + total - Math.floor(parseFloat(user.resources[data.type])));
 
@@ -270,10 +304,15 @@ export default class ActionsController {
   }
 
   private async processExplore(data: JSONObject, user: User): Promise<JSONObject> {
-    this.debug('processExplore');    
+    this.debug('processExplore: ' + user.id );    
 
     if( !data.energy || data.energy <= 0 ) return this.error( 'energy-invalid' );
     if (data.energy > user.energy) return this.error( 'energy' );
+
+    console.log( 'processExplore: ' + data.energy.toString() );
+    console.log( user.energy );
+    console.log( user._dirty );
+    user.dumpEnergy();    
 
     const queries = {
       getLand: `SELECT land FROM users_rounds WHERE userid = ? AND roundid = ?`,
@@ -306,21 +345,40 @@ export default class ActionsController {
       } else {
         gain = Math.random() * .15 + .05;
       }
-
-      this.debug('Gain: ' + gain);
+      
+      this.debug( 'Gain: ' + gain );
 
       increase += gain;
       land += gain;
       energy--;
     }
 
+    //increase = Math.floor( ( increase * 100 ) ) / 100;
+    console.log( "INCREASE: " + increase );
+
     const delta: number = Math.floor(user.land + increase - Math.floor(user.land));
-    user.energy -= data.energy;    
+    user.energy -= data.energy;
+    user.energySpent += data.energy;
     user.land += +increase;
     user.landFree += +increase;
+    if( user.land * LAND_PRECISION % LAND_PRECISION !== user.landFree * LAND_PRECISION % LAND_PRECISION ) {
+        console.log( '=======================================' );
+        console.log( '=======================================' );
+        console.log( '=======================================' );
+        console.log( user.land + ' ---- ' + user.landFree );
+        console.log( user.land * LAND_PRECISION % LAND_PRECISION );
+        console.log( user.landFree * LAND_PRECISION % LAND_PRECISION );
+        console.log( '=======================================' );
+        console.log( '=======================================' );
+        console.log( '=======================================' );
+    }
     user.calculatePower( user.round );
+
+    console.log( user._dirty );
     const commited:boolean = await user.commit();
     this.debug( 'Stored: ' + commited.toString() );
+
+    user.dumpEnergy();
 
     //Prepare the return packet		
     const message = 'You spent ' + data.energy + ' energy exploring, and found ' + (delta === 0 ? ' no land' : delta + ' acre' + (delta == 1 ? '' : 's') + ' of land');
@@ -332,8 +390,9 @@ export default class ActionsController {
     return { type: 'EXPLORE', data: { message, user: user.trim() } };
   }
 
-  private debug(msg: string): void {
-    if (this._debug)
+  private debug(msg: string, force:boolean = false, silence:boolean = false): void {
+    if( silence ) return;
+    if (this._debug || force)
       logger.logServer('ActionsController: ' + msg);
   }
 }

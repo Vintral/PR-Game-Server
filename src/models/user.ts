@@ -3,6 +3,8 @@ import * as WebSocket from 'websocket';
 import { JSONObject, Resources, Incomes, Upkeeps } from '../interfaces';
 import dbase from '../database';
 import logger from '../logger';
+import { PRECISION, LAND_PRECISION } from '../constants';
+import chalk from 'chalk';
 
 export default class User {
   //==============================//
@@ -10,6 +12,7 @@ export default class User {
   //==============================//
   private _debug:boolean = false;
   private _id: number;
+  private _interval:number = 1;
 
   private _connection:any = '';
   private _token:string = '';
@@ -51,13 +54,14 @@ export default class User {
 
   private _vaultMax:number = 0;
 
-  private _dirty:any[] = [];
+  public _dirty:any[] = [];
   //private _dirty:JSONObject[] = [];
   
   private _minuteInterval:any = -1;
   private _5minuteInterval:any = -1;
 
   private _error: string = '';
+  private _precision:number = 100;
 
   private _redis:any = '';
 
@@ -160,14 +164,20 @@ export default class User {
     this._resources.gold = value;
   }
 
-  get land():number { return this._land; }
-  set land( value:number ) {    
-    this.storeDirty( 'land', value - this._land );
+  get land():number { return Math.floor( this._land / LAND_PRECISION ); }
+  set land( value:number ) {   
+    console.log( 'SET LAND: ' + value ); 
+    value = ( value * LAND_PRECISION ) + ( this._land % LAND_PRECISION );
+    value = Math.floor( value );
+    this.storeDirty( 'land', Math.floor( value - this._land ) );
     this._land = value;
   }
 
-  get landFree():number { return this._landFree; }
-  set landFree( value:number ) {
+  get landFree():number { return Math.floor( this._landFree / LAND_PRECISION ); }
+  set landFree( value:number ) {    
+    value = ( value * LAND_PRECISION ) + ( this._landFree % LAND_PRECISION );
+    value = Math.floor( value );
+    if( value % LAND_PRECISION === 0 ) value += this._land % LAND_PRECISION;    
     this.storeDirty( 'land_free', value - this._landFree );
     this._landFree = value;
   }
@@ -402,6 +412,20 @@ public stop():void {
 
     this._land = +data.land;
     this._landFree = +data.land_free;
+    
+    if( this.land * LAND_PRECISION % LAND_PRECISION !== this.landFree * LAND_PRECISION % LAND_PRECISION ) {
+      console.log( '=======================================' );
+      console.log( '=======================================' );
+      console.log( '=======================================' );
+      console.log( this.land + ' ---- ' + this.landFree );
+      console.log( this.land * LAND_PRECISION % LAND_PRECISION );
+      console.log( this.landFree * LAND_PRECISION % LAND_PRECISION );
+      console.log( '=======================================' );
+      console.log( '=======================================' );
+      console.log( '=======================================' );
+
+      process.exit( 1 );
+    }
 
     this._population = +data.population;
     this._populationMax = +data.population_max;
@@ -440,6 +464,11 @@ public stop():void {
     return true;
   }
 
+  public async dumpEnergy():Promise<void> {
+    let result:RowDataPacket = await dbase.getOne( 'SELECT energy FROM users_rounds WHERE userid = ? AND roundid = ?', [ this.id, this.round ] );
+    console.log( 'ENERGY CHECK: ' + result.energy + ' --- ' + this.energy );
+  }
+
   public async loadBuildings( round?:number ) {
     this.debug( 'loadBuildings' );
 
@@ -469,10 +498,16 @@ public stop():void {
   }
 
   public async takeLand( amount:number ):Promise<JSONObject> {
-    this.debug( 'takeLand: ' + amount );
+    this.debug( 'takeLand: ' + amount, true );    
+    
+    let result:RowDataPacket = await dbase.getOne( 'SELECT land, land_free FROM users_rounds WHERE userid = ? AND roundid = ?', [ this.id, this.round ] );
+    console.log( result );    
 
-    if( amount > this._land ) return {};
-    if( amount < this._landFree ) {
+    console.log( 'CURRENT' );
+    console.log( this.land + ' --- ' + this.landFree );
+
+    if( amount > this.land ) return {};
+    if( amount < this.landFree ) {
       this.land -= amount;
       this.landFree -= amount;
 
@@ -480,8 +515,8 @@ public stop():void {
 
       return { land: amount };
     } else {
-      const overrun:number = Math.ceil( amount - this._landFree );
-      this.debug( 'Need to Destroy: ' + overrun + ' buildings' );      
+      const overrun:number = Math.ceil( amount - this.landFree );
+      this.debug( 'Need to Destroy: ' + overrun + ' buildings', true );      
       
       let roll:number = 0;
       let totalBuildings:number = 0;
@@ -510,9 +545,28 @@ public stop():void {
       keys = Object.keys( destroyed );
       keys.forEach( building => this.takeBuilding( building, destroyed[ building ] ) );
 
-      this.land -= amount;
-      this.landFree = 0;
+      console.log( amount );
+      console.log( destroyed );
+
+      console.log( '---------------------' );
+      console.log( this.land );
+      console.log( amount );      
+      this.land = this.land - amount;
+      console.log( this.land );
+      console.log( '---------------------' );
+      console.log( 'LAND FREE BEFORE: ' + this.landFree );
+      console.log( amount );
+      console.log( overrun );
+      console.log( ( amount - overrun ) );      
+      this.landFree -= ( amount - overrun );
+      console.log( 'LAND FREE AFTER: ' + this.landFree );
+
+      console.log( 'AFTER' );
+      console.log( this.land + ' --- ' + this.landFree );
+
       await this.commit();
+
+      //process.exit( 1 );
 
       return { land: amount, destroyed }
     }
@@ -531,15 +585,24 @@ public stop():void {
   private async onMinuteTick():Promise<void> {
       this.debug( 'onMinuteTick', true );
 
-      await this.load( this._round, true, true );
+      this._interval++;
+      const flag:boolean = this._interval % 5 === 0 ? true : false;
+      await this.load( this._round, !flag, !flag );
+
+      console.log( flag ? this.trim() : this.trimLight() );
 
       const packet:JSONObject = {
         type: 'PLAYER_INFO',
         data: {
-            user: this.trimLight(),
+            user: flag ? this.trim() : this.trimLight(),
         }
       }
-      this._connection.sendUTF( JSON.stringify( packet ) );
+      try {
+        this._connection.sendUTF( JSON.stringify( packet ) );
+      } catch( err ) {
+          console.log( chalk.red( 'USER ERROR 1' ) );
+          console.log( err );
+      }
   }
 
   private async onFiveMinuteTick():Promise<void> {
@@ -553,7 +616,13 @@ public stop():void {
           user: this.trim(),
       }
     }
-    this._connection.sendUTF( JSON.stringify( packet ) );
+
+    try {
+        this._connection.sendUTF( JSON.stringify( packet ) );
+    } catch( err ) {
+        console.log( chalk.red( 'USER ERROR 2' ) );
+        console.log( err );
+    }
 }
 
 public async update():Promise<void> {
@@ -565,7 +634,7 @@ public async update():Promise<void> {
       this.debug( 'startTimers' );
       
       this._minuteInterval = setInterval( this.onMinuteTick, 60 * 1000 );
-      this._5minuteInterval = setInterval( this.onFiveMinuteTick, 300 * 1000 );      
+      //this._5minuteInterval = setInterval( this.onFiveMinuteTick, 300 * 1000 );
   }
 
   public async calculatePower( round:number ) {
@@ -587,10 +656,16 @@ public async update():Promise<void> {
             
     const landResult = await dbase.getOne( queries.land, [ this.id, round ] );
     if( landResult ) {
-        power += landResult.land * 5;
+        power += landResult.land * 5 / LAND_PRECISION;
     }
 
     this._power = Math.ceil( power );    
+    if( this._power > 1000000 ) {
+        console.log( 'POWER: ' + power );
+        console.log( landResult.land * 5 / LAND_PRECISION );
+        process.exit( 1 );
+    }
+
     let result = await dbase.query( queries.update, [ this._power, this.id, round ] );    
 
     if( this._redis ) {
@@ -599,6 +674,7 @@ public async update():Promise<void> {
       packet.username = this._username;
       packet.roundid = this._round;
       packet.power = this._power;
+      packet.from = 'User Model';
 
       this._redis.publish( 'SET_POWER', JSON.stringify( packet ) );
     }        
@@ -768,6 +844,7 @@ public async update():Promise<void> {
     let debits:any[] = [];
     let params:any[] = [];
     let keys:string[] = Object.keys( this._dirty );
+    let land:boolean = false;
 
     // Grab all the params and mark the debits
     for( let i:number = 0; i < keys.length; i++ ) {
@@ -781,9 +858,16 @@ public async update():Promise<void> {
     keys = Object.keys( updates );
     let setClause:String = '';
     for( let i:number = 0; i < keys.length; i++ ) {
-      switch( typeof( updates[ keys[ i ] ] ) ) {
-        case 'number': setClause += ( i > 0 ? ', ' : ' ' ) + keys[ i ] + ' = ' + keys[ i ] + ' + ?'; break;
+      if( keys[ i ] === 'land' ) land = true;
+
+      switch( typeof( updates[ keys[ i ] ] ) ) {        
         case 'string': setClause += ( i > 0 ? ', ' : ' ' ) + keys[ i ] + ' = ?'; break;
+        case 'number': 
+            setClause += ( i > 0 ? ', ' : ' ' ) + keys[ i ] + ' = ';
+            //setClause += updates[ keys[ i ] ] < 0 ? 'GREATEST( 0, ' : '';
+            setClause += keys[ i ] + ' + ?';
+            //setClause += updates[ keys[ i ] ] < 0 ? ')' : '';
+            break;
       }
 
       params.push( updates[ keys[ i ] ] );
@@ -792,7 +876,7 @@ public async update():Promise<void> {
     // Process the debits
     keys = Object.keys( debits );
     let whereClause:string = ' WHERE';
-    if( keys.length > 0 ) {
+    /*if( keys.length > 0 ) {
         for( let i:number = 0; i < keys.length; i++ ) {      
         whereClause += ( i > 0 ? ' AND ' : ' ' ) + keys[ i ];
         if( debits[ keys[ i ] ] > 0 ) whereClause += ' <= ';
@@ -802,20 +886,43 @@ public async update():Promise<void> {
         params.push( -debits[ keys[ i ] ] );
         }
         whereClause += ' AND';
-    }
+    }*/
     whereClause += ' userid = ? AND roundid = ?';
 
     params.push( this.id );
     params.push( this.round );        
     
     const query:string = 'UPDATE users_rounds SET' + setClause + whereClause;    
-    const result:RowDataPacket = await dbase.query( query, [ ...params ] );    
+    const result:RowDataPacket = await dbase.query( query, [ ...params ] ); 
+    console.log( 'QUERY' );
+    console.log( query );
+    console.log( params );
+
     if( result[ 0 ].affectedRows === 1 ) {
       // Clear our dirty values
       this._dirty = [];
+
+      if( land ) {
+        const query:string = `SELECT land, land_free FROM users_rounds WHERE userid = ? AND roundid = ?`;
+        const result:RowDataPacket = await dbase.getOne( query, [ this.id, this.round ] );
+        console.log( 'Loading Land' );
+
+        console.log( result );
+
+        this._land = +result.land;
+        this._landFree = +result.land_free;
+      }
       return true;
+    } else {
+        console.log( query );
+        console.log( params );
+
+        let result:RowDataPacket = await dbase.getOne( 'SELECT * FROM users_rounds WHERE userid = ? AND roundid = ?', [ this.id, this.round ] );
+        console.log( result );
     }
 
+    console.log( 'ERROR IN COMMIT' );
+    process.exit( 1 );
     return false;
 
     /*let dirty:any[] = [ ...this._dirty ];
@@ -979,8 +1086,8 @@ public async update():Promise<void> {
       population: this._population,
       populationMax: this._populationMax,
 
-      land: this._land,
-      landFree: this._landFree,
+      land: this._land / LAND_PRECISION,
+      landFree: this._landFree / LAND_PRECISION,
 
       build: this._build,
       defense: this._defense,
@@ -999,8 +1106,8 @@ public async update():Promise<void> {
     return {
         energy: this._energy,
         power: this._power,
-        land: this._land, 
-        landFree: this._landFree, 
+        land: this._land / LAND_PRECISION,
+        landFree: this._landFree / LAND_PRECISION, 
         population: this._population, 
         populationMax: this._populationMax, 
         build: this._build, 
