@@ -364,6 +364,7 @@ const server = new WebSocket.server( {
 
 server.on( 'connect', ( connection:WebSocket.connection ) => {
     let user:User|null;
+    let userid:number = -1;
     let token:string = '';
     let os:string = '';
 
@@ -429,16 +430,38 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
                 const online:number = await getAsync( 'USERS-ONLINE' );
                 console.log( 'ONLINE: ' + online );
             } break;
+            case 'register': {
+                console.log( 'Token: ' + token );
+                let result:RowDataPacket = await dbase.getOne( `SELECT COUNT(id) AS total FROM users_push_tokens WHERE token = ?`, [ token ] );
+                console.log( result );
+                if( result && result.total >= 2 ) return send( { type:'ERROR', data:'registration-too-many' } );
+
+                const d:JSONObject = await _userController.register( data );
+                
+                console.log( '========================' );
+                console.log( d );
+                console.log( d.type );
+                console.log( '========================' );
+
+                if( d.id !== null && d.id === -1 ) send( { type:'ERROR', data:'registration-generic' } );
+                else if( d.type !== null && d.type === 'ERROR' ) send( d );
+                else {
+                    userid = d.id;
+                    send( { type:'REGISTERED' } );
+                }
+            } break;
             case 'login': {
+                console.log( 'LOGIN' );
                 const { username, password } = data;
                 console.log( username );
                 console.log( password );
                 let tempUser:User|null = await _userController.login( username, password );
                 if( tempUser == null ) return send( { type:'LOGIN_ERROR', data:'Invalid Username/Password' } );
+                console.log( 1 );
 
                 let result:RowDataPacket = await dbase.getOne( `SELECT COUNT(id) AS total FROM users_push_tokens WHERE token = ? AND userid <> ?`, [ token, tempUser.id ] );
-                if( result && result.total >= 2 ) return send( { type:'ERROR', data:{ code: 'login-too-many' } } );
-                
+                if( result && result.total >= 2 ) return send( { type:'ERROR', data:{ code: 'login-too-many' } } );                
+
                 user = tempUser;
                 user.redis = redisClient;
                 user.connection = connection;
@@ -446,8 +469,14 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
                 user.recordIP( connection.remoteAddress );
                 _userController.recordPushToken( user, token, os );
 
+                user.updateLastLogin();
+                user.updateLastSeen();
+
                 let check:boolean = await user.checkForDupes();
-                if( check ) send( { type:'LOGIN_SUCCESS', data:user.trim() } );
+                if( check ) {
+                    console.log( 'LOGGED IN' );
+                    send( { type:'LOGIN_SUCCESS', data:user.trim() } );
+                } else console.log( 'what da shit' );
 
                 users[ user.id ] = {
                     user,
@@ -473,9 +502,18 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
 
                 console.log( 'TOKEN: ' + token + '(' + os + ')' );
             } break;
-            case 'register':
             case 'recover_password': {
                 send( await _userController.process( data ) );
+            } break;
+            case 'set_avatar':
+            case 'get_avatars': {
+                if( user != null ) send( await _avatarsController.process( data, user ) );
+                else if( userid !== -1 ) {
+                    switch( data.command ) {                    
+                        case 'get_avatars': send( await _avatarsController.getAvatarsForUserID( userid ) ); break;
+                        case 'set_avatar': send( await _avatarsController.setAvatarForUserID( data, userid ) ); break;
+                    }
+                }
             } break;
             case 'get_buildings':
             case 'get_units':
@@ -485,6 +523,8 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
                 send( await _libraryController.process( data ) );
                 break;
             default: if( user != null ) {
+                user.updateLastSeen();
+
                 switch( data.command ) {        
                     case 'logout': {
                         delete users[ user.id ];
@@ -529,10 +569,6 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
                     case 'get_profile':
                     case 'get_contacts': {
                         send( await _usersController.process( data, user ) );
-                    } break;
-                    case 'set_avatar':
-                    case 'get_avatars': {
-                        send( await _avatarsController.process( data, user ) );
                     } break;
                     case 'clear_events':
                     case 'get_events': {

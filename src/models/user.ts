@@ -293,6 +293,14 @@ export default class User {
     return true;
   }
 
+  public async updateLastSeen() {
+     await dbase.query( 'UPDATE users SET last_seen = UNIX_TIMESTAMP() WHERE id = ?', [ this._id ] );
+  }
+
+  public async updateLastLogin() {
+     await dbase.query( 'UPDATE users SET last_login = UNIX_TIMESTAMP() WHERE id = ?', [ this._id ] );
+  }
+
   public async updateDeltas( round:number = 0 ) {
     if( !round ) round = this.round;
 

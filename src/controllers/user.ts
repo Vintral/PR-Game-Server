@@ -62,6 +62,8 @@ export default class UserController {
                 const user = new User( data.id );                
                 await user.load();
 
+                console.log( user );
+
                 return user;
             } else {
                 const token:RowDataPacket = await dbase.getOne( 'SELECT password FROM users_password_tokens WHERE userid = ?', [ data.id ] );
@@ -78,7 +80,7 @@ export default class UserController {
         return null;
     }
 
-    private async register( data:JSONObject ):Promise<JSONObject> {
+    public async register( data:JSONObject ):Promise<JSONObject> {
         this.debug( 'register' );
         console.log( data );
 
@@ -93,35 +95,36 @@ export default class UserController {
         const queries:JSONObject = {
             email: `SELECT id FROM users WHERE email = ?`,
             username: `SELECT id FROM users WHERE username = ?`,
-            insert: `INSERT INTO users ( username, password, email, avatar, created, gems ) values( ?, ?, ?, ?, UNIX_TIMESTAMP(), 0 )`,
+            insert: `INSERT INTO users ( username, password, email, avatar, current_round, created, gems ) values( ?, ?, ?, ?, 0, UNIX_TIMESTAMP(), 0 )`,
             avatars: `SELECT path AS avatar FROM avatars WHERE available = 1`,
             notification: `INSERT INTO users_notifications_settings ( userid, type ) VALUES ( ?, ? )`
         }
 
         let result:RowDataPacket = await dbase.getOne( queries.email, [ email ] );
-        if( result ) return { type:'ERROR', data:'Email in use' };
+        if( result ) return { type:'ERROR', data:'registration-email' };
 
         result = await dbase.getOne( queries.username, [ username ] );
-        if( result ) return { type:'ERROR', data:'Username in use' };
+        if( result ) return { type:'ERROR', data:'registration-username' };
 
         result = await dbase.get( queries.avatars );
         const avatar:string = result[ Math.floor( ( Math.random() * result.length ) ) - 1 ];
     
-        if( !validator.isAlphanumeric( username ) ) return { type:'ERROR', data:'Username can only contain letters and numbers' };
-        if( !validator.isEmail( email ) ) return { type:'ERROR', data:'Enter valid email' };
+        if( !validator.isAlphanumeric( username ) ) return { type:'ERROR', data:'registartion-invalid-characters' };
+        if( !validator.isEmail( email ) ) return { type:'ERROR', data:'registration-invalid-email' };
               
         const salt = await bcrypt.genSalt( 10 );    
         password = await bcrypt.hash( password, salt );
 
         result = await dbase.query( queries.insert, [ username, password, email, avatar ] );
-        if( result[ 0 ].affectedRows !== 1 ) return { type:'ERROR', data:'Error registering' };
-        
+        if( result[ 0 ].affectedRows !== 1 ) return { type:'ERROR', data:'registration-generic' };
+        const id:number = result[ 0 ].insertId || -1;
+
         const notifications = [ 'enabled', 'mail', 'attacked', 'event', 'turns' ];
         notifications.forEach( async( type ) => { 
           await dbase.query( queries.notification, [ result[ 0 ].insertId, type ] );
         } );
 
-        return { type:'REGISTERED' };
+        return { id };
     }
 
     private async recoverPassword( data:JSONObject ):Promise<JSONObject> {
