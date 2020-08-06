@@ -496,11 +496,18 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
                 packet.userid = user.id;
                 redisClient.publish( 'USER_ONLINE', JSON.stringify( packet ) );
             } break;
-            case 'register_push_token': {
+            case 'validate_device': {
                 token = data.token;
                 os = data.os;
 
                 console.log( 'TOKEN: ' + token + '(' + os + ')' );
+
+                const version:number = parseInt( data.version.replace( /\./g, '' ) );
+                const result:RowDataPacket = await dbase.getOne( 'SELECT minimum_version FROM apps WHERE platform = ?', [ os ] );
+                const min:number = parseInt( result.minimum_version.replace( /\./g, '' ) );
+
+                if( version < min ) send( { type:'UPGRADE_REQUIRED' } );
+                else send( { type:'VALIDATED' } );
             } break;
             case 'recover_password': {
                 send( await _userController.process( data ) );
