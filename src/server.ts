@@ -1,12 +1,8 @@
 //==================================//
 //	Requires						//
 //==================================//
-//let net = require( 'net' );
 const { promisify } = require( 'util' );
 let UUID = require( 'uuid/v4' );
-//let fs = require('fs');
-//let validator = require('validator');
-//import * as bcrypt from 'bcryptjs';
 import chalk from 'chalk';
 import { RowDataPacket } from 'mysql2/promise';
 import dbase from './database';
@@ -633,7 +629,8 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
     } );
 
     try {
-        connection.sendUTF( JSON.stringify( { type: 'PING' } ) );
+        if( process.env.MAINTENANCE && parseInt( process.env.MAINTENANCE ) === 1 ) connection.sendUTF( JSON.stringify( { type: 'MAINTENANCE' } ) );
+        else connection.sendUTF( JSON.stringify( { type: 'PING' } ) );
     } catch( err ) {
         console.log( chalk.red( 'CONNECTION ERROR' ) );
         console.log( err );
