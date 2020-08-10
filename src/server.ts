@@ -101,7 +101,7 @@ redisListener.on( "message", async ( channel, message ) => {
         } break;            
         default: console.log( "UNKNOWN COMMAND: " + data.command ); break;
       }
-      break;    
+      break;
     case "USER_MESSAGE":
       if( users[ data.userid ] ) {
         users[ data.userid ].connection.emit( data.message );
@@ -175,7 +175,7 @@ const _libraryController:LibraryController = new LibraryController();
 const _usersController:UsersController = new UsersController();
 const _avatarsController:AvatarsController = new AvatarsController();
 const _eventsController:EventsController = new EventsController();
-const _conversationsController:ChatsController = new ChatsController();
+const _conversationsController:ChatsController = new ChatsController( redisListener, redisClient );
 const _rankingsController:RankingsController = new RankingsController( redisClient );
 const _marketsController:MarketsController = new MarketsController();
 const _jobsController:JobsController = new JobsController( redisClient );
@@ -362,15 +362,16 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
     let user:User|null;
     let userid:number = -1;
     let token:string = '';
+    let deviceID:string = "";
     let os:string = '';
 
     console.log( "WE HAVE CONNECTION" );    
     console.log( connection.remoteAddress );    
 
     connection.on( 'message', async payload => {
-        console.log( 'RECEIVED MESSAGE' );
+        //console.log( 'RECEIVED MESSAGE' );
         let data = JSON.parse( payload.utf8Data as string );
-        console.log( data );
+        //console.log( data );
 
         function send( packet:JSONObject ) {
             try {
@@ -464,6 +465,7 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
                 user.token = token;
                 user.recordIP( connection.remoteAddress );
                 _userController.recordPushToken( user, token, os );
+                _userController.recordDevice( user, deviceID, os );
 
                 user.updateLastLogin();
                 user.updateLastSeen();
@@ -494,7 +496,8 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
             } break;
             case 'validate_device': {
                 token = data.token;
-                os = data.os;
+                deviceID = data.device;
+                os = data.os;                
 
                 console.log( 'TOKEN: ' + token + '(' + os + ')' );
 
@@ -587,6 +590,7 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
                     } break;
                     case 'contact':
                     case 'get_shouts':
+                    case 'send_shout':
                     case 'join_shoutbox':
                     case 'leave_shoutbox':
                     case 'get_conversation':

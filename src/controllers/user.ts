@@ -50,6 +50,22 @@ export default class UserController {
         return result[ 0 ].affectedRows === 1;
     }
 
+    public async recordDevice( user:User, device:string, os:string ):Promise<boolean> {
+        this.debug( 'recordDevice: ' + user.id + ' -- ' + device );
+        
+        const queries:JSONObject = {
+            update: `UPDATE users_devices SET date = UNIX_TIMESTAMP() WHERE userid = ? AND os = ? AND device = ?`,
+            insert: `INSERT INTO users_devices ( userid, os, device, date ) VALUES ( ?, ?, ?, UNIX_TIMESTAMP() )`
+        }
+
+        let result:RowDataPacket = await dbase.query( queries.update, [ user.id, os, device ] );
+        console.log( result );
+        if( result[ 0 ].affectedRows === 1 ) return true;
+
+        result = await dbase.query( queries.insert, [ user.id, os, device ] );
+        return result[ 0 ].affectedRows === 1;
+    }
+
     public async login( username:string, password:string ):Promise<User|null> {
         username = Buffer.from( username, "base64" ).toString();
         password = Buffer.from( password, "base64" ).toString();

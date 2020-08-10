@@ -8,14 +8,29 @@ import { Base64 } from 'js-base64';
 
 export default class ChatsController {
     private _debug:boolean = true;
+    private _sender:any = '';
+    private _listener:any = '';
+    private _connections:Array<WebSocket.connection> = [];
+
+    constructor( redisListener:any, redisClient:any ) { 
+        this._sender = redisClient;
+        this._listener = redisListener;
+
+        //redisListener.on( "message", async ( channel, message ) => {
+        //this._listener.on( "message", this.onMessage )
+    }
+
+    private async onMessage( channel:any, message:any ):Promise<void> {
+        this.debug( "Message: " + channel + ": " + message );
+    }
 
     public async process( data:JSONObject, user:User, connection:WebSocket.connection  ):Promise<JSONObject> {        
-        try {
-            console.log( data );
+        try {            
             switch( data.command ) {
                 case 'get_conversations': return { type:'CONVERSATIONS', data: await this.getConversations( user, data ) };
                 case 'get_conversation': return { type:'CONVERSATION', data: await this.getConversation( user, data ) };
                 case 'get_shouts': return { type:'SHOUTS', data: await this.getShouts( user ) };
+                case 'send_shout': return await this.sendShout( user, data );
                 case 'join_shoutbox': return { type:'SHOUTBOX_JOINED', data: await this.joinShoutbox( user, connection ) };
                 case 'leave_shoutbox': return { type:'SHOUTBOX_LEFT', data: await this.leaveShoutbox( user, connection  ) };
                 case 'send_message': return { type:'MESSAGE_SENT', data: await this.sendMessage( user, data ) };
@@ -35,6 +50,39 @@ export default class ChatsController {
         const result:RowDataPacket = await dbase.query( query, [ user.id, user.round, data.message ] );
 
         return {};
+    }
+
+    private async sendShout( user:User, payload:JSONObject ):Promise<JSONObject> {
+        this.debug( 'sendShout' );
+        console.log( payload );
+
+        let shout:string = Base64.decode( payload.shout );
+
+        const queries:JSONObject = {
+            banned: `SELECT banned_shoutbox FROM users WHERE id = ?`,
+            insert: `INSERT INTO shoutbox ( userid, shout, time, deleted ) VALUES ( ? , ? , UNIX_TIMESTAMP(), ?)`,
+            retrieve: `SELECT time FROM shoutbox WHERE id = ?`
+        }
+
+        let result:RowDataPacket = await dbase.getOne( queries.banned, [ user.id ] );
+        console.log( result );
+        let banned:boolean = result.banned_shoutbox === 1;
+
+        result = await dbase.query( queries.insert, [ user.id, shout, banned ? 1 : 0 ] );
+        console.log( result );
+
+        let inserted:RowDataPacket = await dbase.getOne( queries.retrieve, [ result[ 0 ].insertId ] );
+
+        const data:JSONObject = {};
+        data.avatar = user.avatar;
+        data.time = inserted.time;
+        data.username = user.username;        
+        data.shout = Base64.encode( shout );
+
+        if( !banned ) this._connections.forEach( connection => connection.sendUTF( JSON.stringify( { type:"SHOUT", data } ) ) );
+        else this._connections[ user.id ].sendUTF( JSON.stringify( { type:"SHOUT", data } ) ); 
+
+        return { type:'SHOUT_SENT' };
     }
 
     private async sendMessage( user:User, data:JSONObject ):Promise<JSONObject> {
@@ -134,8 +182,8 @@ export default class ChatsController {
     private async getShouts( user:User ):Promise<JSONObject> {
         this.debug( 'getShouts' );
 
-        const query:string = `SELECT username, avatar, time, shout FROM shoutbox INNER JOIN users ON userid = users.id WHERE shoutbox.userid NOT IN ( SELECT contactid AS userid FROM contacts WHERE userid = ? AND type='blocked' ) ORDER BY shoutbox.id DESC LIMIT 30`;
-        const result:RowDataPacket[] = await dbase.query( query, [ user.id ] );        
+        const query:string = `SELECT username, avatar, time, shout FROM shoutbox INNER JOIN users ON userid = users.id WHERE ( deleted = 0 OR shoutbox.userid = ? ) AND shoutbox.userid NOT IN ( SELECT contactid AS userid FROM contacts WHERE userid = ? AND type='blocked' ) ORDER BY shoutbox.id DESC LIMIT 30`;
+        const result:RowDataPacket[] = await dbase.query( query, [ user.id, user.id ] );        
 
         for( let i:number = 0; i < result[ 0 ].length; i++ ) {
             result[ 0 ][ i ].shout = Base64.encode( result[ 0 ][ i ].shout );
@@ -146,12 +194,18 @@ export default class ChatsController {
 
     private async joinShoutbox( user:User, connection:WebSocket.connection ):Promise<JSONObject> {
         this.debug( 'joinShoutbox' );
-        return {};
+
+        this._connections[ user.id ] = connection;
+
+        return { type:'SHOUTBOX_JOINED' };
     }
 
     private async leaveShoutbox( user:User, connection:WebSocket.connection ):Promise<JSONObject> { 
         this.debug( 'leaveShoutbox' );
-        return {}
+
+        delete this._connections[ user.id ];
+
+        return { type:'SHOUTBOX_LEFT' };
     }
 
     private debug( msg:string ):void {        

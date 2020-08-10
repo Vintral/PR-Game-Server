@@ -246,7 +246,7 @@ export default class User {
     this.debug( 'checkForDupes' );
 
     const queries:JSONObject = {
-      token: `SELECT userid, username FROM users_push_tokens INNER JOIN users ON users.id = userid WHERE token = ? AND userid <> ?`,
+      device: `SELECT userid, username FROM users_devices INNER JOIN users ON users.id = userid WHERE device = ? AND userid <> ?`,
       ip: `SELECT userid FROM users_ips WHERE ip = ? AND userid <> ?`,
       update: `UPDATE users_dupes SET time = UNIX_TIMESTAMP() WHERE userid = ? AND dupe = ? AND type = ?`,
       insert: `INSERT INTO users_dupes ( userid, dupe, type, viewed, time ) VALUES ( ?, ?, ?, 0, UNIX_TIMESTAMP() )`,
@@ -254,7 +254,7 @@ export default class User {
       ban: `UPDATE users SET banned_until = -1, banned_reason = ?, banned = 1 WHERE id = ?`      
     }
 
-    let results:RowDataPacket[] = await dbase.get( queries.token, [ this._token, this._id ] );    
+    let results:RowDataPacket[] = await dbase.get( queries.device, [ this._token, this._id ] );    
     for( let i:number = 0; i < results.length; i++ ) {      
       this.debug( 'Marking Self' );
       let result:RowDataPacket = await dbase.query( queries.update, [ this._id, results[ i ].userid, 1 ] );
