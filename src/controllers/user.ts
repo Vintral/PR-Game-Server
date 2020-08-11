@@ -27,7 +27,8 @@ export default class UserController {
                 case 'buy_premium_item': return await this.buyPremiumItem( data, user );
                 case 'get_user_data': return { type:'USER_DATA', data: await this.getUserData( user ) };
                 case 'update_email': return await this.updateEmail( data, user );
-                case 'update_password': return await this.updatePassword( data, user );                
+                case 'update_password': return await this.updatePassword( data, user );
+                case 'get_settings': return await this.getSettings( user );
                 case 'notification_setting': return await this.updateNotificationSetting( data, user );
                 case 'notifications_enabled': return await this.updateNotificationsEnabled( data, user );
                 default: console.log( 'Unhandled Command: ' + data.command );
@@ -195,7 +196,16 @@ export default class UserController {
 
         const exists:RowDataPacket[] = await dbase.getOne( 'SELECT id FROM users WHERE username = ?', [ username ] );
         return exists ? true : false;        
-    }    
+    }
+
+    private async getSettings( user:User ):Promise<JSONObject> {
+        this.debug( 'getSettings' );
+
+        const results:RowDataPacket[] = await dbase.get( `SELECT type FROM users_notifications_settings WHERE userid = ?`, [ user.id ] );
+
+        console.log( { type:'SETTINGS', data: { notifications:results } } );
+        return { type:'SETTINGS', data: { notifications:results } };
+    }
 
     private async updateNotificationSetting( data:JSONObject, user:User ):Promise<JSONObject> {
         this.debug( 'updateNotificationSetting' );

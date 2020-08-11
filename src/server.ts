@@ -561,7 +561,8 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
                     case 'update_email':
                     case 'update_password':
                     case 'notifications_enabled':
-                    case 'notification_setting':            
+                    case 'notification_setting':
+                    case 'get_settings':
                     case 'get_user_data': {
                         send( await _userController.process( data, user ) );
                     } break;
@@ -612,7 +613,8 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
                     case 'use_item': {
                         send( await _vaultController.process( data, user ) );
                     } break;
-                    default: 
+                    default:
+                        console.log( data );
                         console.log( chalk.white.bgRed( 'ERROR:' ) + chalk.red( ' Unhandled Command - ' + data.command ) );
                         break;
                 }
