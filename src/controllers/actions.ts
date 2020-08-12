@@ -115,7 +115,7 @@ export default class ActionsController {
 
       user.dumpEnergy();
 
-      return { type: 'BUILT', data: { message, user: user.trim() } };
+      return { type: 'BUILT', data: { quantity, type:building.type, user: user.trim() } };
     } catch (err) {
       logger.logError('Error: ' + err);
     }
@@ -193,7 +193,7 @@ export default class ActionsController {
 
       user.dumpEnergy();
 
-      return { type: 'RECRUITED', data: { message, user: user.trim() } };
+      return { type: 'RECRUITED', data: { quantity, type:unit.type, user: user.trim() } };
     } catch (err) {
       logger.logError('Error: ' + err);
     }
@@ -300,7 +300,7 @@ export default class ActionsController {
     //user.energy -= data.energy;
     //user.resources[data.type] = parseFloat(user.resources[data.type]) + total;
 
-    return { type: 'GATHER', data: { message, user: user.trim() } };
+    return { type: 'GATHER', data: { gain:delta, energy:data.energy, type:data.type, user: user.trim() } };
   }
 
   private async processExplore(data: JSONObject, user: User): Promise<JSONObject> {
@@ -387,7 +387,7 @@ export default class ActionsController {
     user.log( 'Explore: ' + data.energy + ' energy' );
     user.log(data.msg);
     
-    return { type: 'EXPLORE', data: { message, user: user.trim() } };
+    return { type: 'EXPLORE', data: { gain:delta, energy:data.energy, user: user.trim() } };
   }
 
   private debug(msg: string, force:boolean = false, silence:boolean = false): void {
