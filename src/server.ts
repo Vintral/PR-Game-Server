@@ -52,7 +52,8 @@ redisListener.on( "ready", () => {
   redisListener.subscribe( "JOBS_RETRIEVED" );
   redisListener.subscribe( "JOBS_CLEARED" );
   redisListener.subscribe( "JOB_CLAIMED" );
-  redisListener.subscribe( "JOB_ERROR" );  
+  redisListener.subscribe( "JOB_ERROR" );
+  redisListener.subscribe( "SHOUT_SENT" );
 } );
 
 redisListener.on( "connect", () => {
@@ -107,11 +108,14 @@ redisListener.on( "message", async ( channel, message ) => {
         users[ data.userid ].connection.emit( data.message );
       }
       break;
+    case "SHOUT_SENT": {
+      _conversationsController.processShout( data );
+    } break;
     case "JOB_READY":
       if( users[ data.userid ] ) {
         users[ data.userid ].connection.emit( "JOB_READY" );
       }
-      break;
+      break;    
     case "JOBS_CLEARED":
       if( users[ data.userid ] ) {
         users[ data.userid ].connection.emit( "JOBS_CLEARED" );
@@ -175,7 +179,7 @@ const _libraryController:LibraryController = new LibraryController();
 const _usersController:UsersController = new UsersController();
 const _avatarsController:AvatarsController = new AvatarsController();
 const _eventsController:EventsController = new EventsController();
-const _conversationsController:ChatsController = new ChatsController( redisListener, redisClient );
+const _conversationsController:ChatsController = new ChatsController( redisClient );
 const _rankingsController:RankingsController = new RankingsController( redisClient );
 const _marketsController:MarketsController = new MarketsController();
 const _jobsController:JobsController = new JobsController( redisClient );

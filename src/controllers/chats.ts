@@ -12,16 +12,12 @@ export default class ChatsController {
     private _listener:any = '';
     private _connections:Array<WebSocket.connection> = [];
 
-    constructor( redisListener:any, redisClient:any ) { 
+    constructor( redisClient:any ) { 
         this._sender = redisClient;
-        this._listener = redisListener;
+        //this._listener = redisListener;
 
         //redisListener.on( "message", async ( channel, message ) => {
         //this._listener.on( "message", this.onMessage )
-    }
-
-    private async onMessage( channel:any, message:any ):Promise<void> {
-        this.debug( "Message: " + channel + ": " + message );
     }
 
     public async process( data:JSONObject, user:User, connection:WebSocket.connection  ):Promise<JSONObject> {        
@@ -41,6 +37,11 @@ export default class ChatsController {
         }
 
         return { type:'ERROR', data:'Conversations Error' };
+    }
+
+    public async processShout( data:JSONObject ):Promise<void> {
+        this.debug( "processShout" );
+        this._connections.forEach( connection => connection.sendUTF( JSON.stringify( { type:"SHOUT", data } ) ) );
     }
 
     private async submitContact( user:User, data:JSONObject ):Promise<JSONObject> {
@@ -79,8 +80,8 @@ export default class ChatsController {
         data.username = user.username;        
         data.shout = Base64.encode( shout );
 
-        if( !banned ) this._connections.forEach( connection => connection.sendUTF( JSON.stringify( { type:"SHOUT", data } ) ) );
-        else this._connections[ user.id ].sendUTF( JSON.stringify( { type:"SHOUT", data } ) ); 
+        if( !banned ) this._sender.publish( 'SHOUT_SENT', JSON.stringify( data ) );
+        else this._connections[ user.id ].sendUTF( JSON.stringify( { type:"SHOUT", data } ) );        
 
         return { type:'SHOUT_SENT' };
     }
