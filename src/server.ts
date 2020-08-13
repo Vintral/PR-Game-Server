@@ -48,6 +48,7 @@ redisListener.on( "ready", () => {
 
   redisListener.subscribe( guid );
   redisListener.subscribe( "USER_MESSAGE" );
+  redisListener.subscribe( "USER_ONLINE" );
   redisListener.subscribe( "JOB_READY" );
   redisListener.subscribe( "JOBS_RETRIEVED" );
   redisListener.subscribe( "JOBS_CLEARED" );
@@ -108,6 +109,15 @@ redisListener.on( "message", async ( channel, message ) => {
         users[ data.userid ].connection.emit( data.message );
       }
       break;
+    case "USER_ONLINE": {
+      // Make sure we're not getting our own message
+      if( data.server !== guid ) {
+        if( users[ data.userid ] ) {
+          console.log( "CLOSING CONNECTION" );
+          users[ data.userid ].connection.close( "1", "OTHER_SIGN_ON" );
+        }
+      }
+    } break;
     case "SHOUT_SENT": {
       _conversationsController.processShout( data );
     } break;
@@ -203,9 +213,9 @@ async function test():Promise<void> {
         { u:3, unit:5, quantity:20 },
     ];
 
-    units.forEach( async( unit ) => {
+    /*units.forEach( async( unit ) => {
         await dbase.query( 'INSERT INTO users_rounds_units ( userid, roundid, unitid, quantity ) VALUES ( ?, 45, ?, ? )', [ unit.u, unit.unit, unit.quantity ] );
-    } );
+    } );*/
 
     await dbase.query( 'DELETE FROM users_rounds_buildings WHERE userid = 3' );
     await dbase.query( 'UPDATE users_rounds SET land = 200, land_free = 0 WHERE userid = 3' );
@@ -219,9 +229,9 @@ async function test():Promise<void> {
         { building:7, quantity:5 },
         { building:8, quantity:40 },
     ];
-    buildings.forEach( async( building ) => {
+    /*buildings.forEach( async( building ) => {
         await dbase.query( 'INSERT INTO users_rounds_buildings ( userid, roundid, buildingid, quantity ) VALUES ( 3, 45, ?, ? )', [ building.building, building.quantity ] );
-    } );
+    } );*/
 
     let attacker:User|null = await _userController.load( 'vintral', 45 );
     if( attacker === null ) return;
@@ -238,7 +248,7 @@ async function test():Promise<void> {
     };
     //_combatController.process( rdata, attacker );
 }
-test();
+//test();
 
 //==========================================//
 //	Database								//
@@ -362,12 +372,17 @@ const server = new WebSocket.server( {
     autoAcceptConnections: true
 } );
 
+let connectionID:number = 1;
+
 server.on( 'connect', ( connection:WebSocket.connection ) => {
     let user:User|null;
     let userid:number = -1;
     let token:string = '';
     let deviceID:string = "";
     let os:string = '';
+    let id:number = connectionID++;
+    
+    if( connectionID > 10000000 ) connectionID = 1;
 
     console.log( "WE HAVE CONNECTION" );    
     console.log( connection.remoteAddress );    
@@ -420,7 +435,8 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
 
                 users[ user.id ] = {
                     user,
-                    connection
+                    connection,
+                    id
                 };
                 totalUsers++;                
 
@@ -458,7 +474,6 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
                 console.log( password );
                 let tempUser:User|null = await _userController.login( username, password );
                 if( tempUser == null ) return send( { type:'LOGIN_ERROR', data:'Invalid Username/Password' } );
-                console.log( 1 );
 
                 let result:RowDataPacket = await dbase.getOne( `SELECT COUNT(id) AS total FROM users_push_tokens WHERE token = ? AND userid <> ?`, [ token, tempUser.id ] );
                 if( result && result.total >= 2 ) return send( { type:'ERROR', data:{ code: 'login-too-many' } } );                
@@ -480,11 +495,18 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
                     send( { type:'LOGIN_SUCCESS', data:user.trim() } );
                 } else console.log( 'what da shit' );
 
+                // See if we're online already
+                if( users[ user.id ] ) {
+                  console.log( "CLOSING CONNECTION" );
+                  users[ user.id ].connection.close( "1", "OTHER_SIGN_ON" );
+                  users[ user.id ]
+                } else console.log( "NO CURRENT CONNECTION" );
+
                 users[ user.id ] = {
                     user,
                     connection
                 };
-                totalUsers++;                
+                totalUsers++;
 
                 // Set this user's key to this server
                 await setAsync( 'USER-' + user.id, guid );
@@ -496,7 +518,9 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
                 let packet:JSONObject = {};
                 packet.server = guid;
                 packet.userid = user.id;
-                redisClient.publish( 'USER_ONLINE', JSON.stringify( packet ) );
+
+                console.log( "SENDING USER_ONLINE" );
+                redisClient.publish( "USER_ONLINE", JSON.stringify( packet ) );
             } break;
             case 'validate_device': {
                 token = data.token;
@@ -629,7 +653,12 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
     connection.on( 'close', async ( reason, description ) => {
         if( user ) {
             user.stop();
-            delete users[ user.id ];            
+
+            if( users[ user.id ] ) {
+              if( users[ user.id ].id == id )
+                delete users[ user.id ];
+            }
+
             await delAsync( 'USER-' + user.id );
             await decrAsync( 'USERS-ONLINE', 1 );
             const online:number = await getAsync( 'USERS-ONLINE' );

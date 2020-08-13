@@ -60,7 +60,6 @@ export default class UserController {
         }
 
         let result:RowDataPacket = await dbase.query( queries.update, [ user.id, os, device ] );
-        console.log( result );
         if( result[ 0 ].affectedRows === 1 ) return true;
 
         result = await dbase.query( queries.insert, [ user.id, os, device ] );
@@ -78,9 +77,6 @@ export default class UserController {
             if( compare ) {                
                 const user = new User( data.id );                
                 await user.load();
-
-                console.log( user );
-
                 return user;
             } else {
                 const token:RowDataPacket = await dbase.getOne( 'SELECT password FROM users_password_tokens WHERE userid = ?', [ data.id ] );
@@ -99,15 +95,10 @@ export default class UserController {
 
     public async register( data:JSONObject ):Promise<JSONObject> {
         this.debug( 'register' );
-        console.log( data );
 
         const username:string = validator.trim( validator.escape( Buffer.from( data.username, "base64" ).toString() ) );
         let password:string = validator.trim( validator.escape( Buffer.from( data.password, "base64" ).toString() ) );
         const email:string = validator.trim( validator.escape( Buffer.from( data.email, "base64" ).toString() ) );
-
-        console.log( username );
-        console.log( password );
-        console.log( email );
 
         const queries:JSONObject = {
             email: `SELECT id FROM users WHERE email = ?`,
@@ -153,7 +144,6 @@ export default class UserController {
             insert: `INSERT INTO users_password_tokens ( userid, password, time ) VALUES ( ?, ?, UNIX_TIMESTAMP() )`
         }
 
-        console.log( data );
         const email:string = validator.trim( validator.escape( Buffer.from( data.email, 'base64' ).toString() ) );
 
         let result:RowDataPacket = await dbase.getOne( queries.userid, [ email ] );
@@ -201,15 +191,12 @@ export default class UserController {
     private async getSettings( user:User ):Promise<JSONObject> {
         this.debug( 'getSettings' );
 
-        const results:RowDataPacket[] = await dbase.get( `SELECT type FROM users_notifications_settings WHERE userid = ?`, [ user.id ] );
-
-        console.log( { type:'SETTINGS', data: { notifications:results } } );
+        const results:RowDataPacket[] = await dbase.get( `SELECT type FROM users_notifications_settings WHERE userid = ?`, [ user.id ] );        
         return { type:'SETTINGS', data: { notifications:results } };
     }
 
     private async updateNotificationSetting( data:JSONObject, user:User ):Promise<JSONObject> {
         this.debug( 'updateNotificationSetting' );
-        console.log( data );
 
         const queries:JSONObject = {
             check: `SELECT id FROM users_notifications_settings WHERE userid = ? AND type = ?`,
@@ -326,7 +313,6 @@ export default class UserController {
 
         await user.load();
         const ret:JSONObject = user.trimDetails();
-        console.log( ret );
 
         return ret;
     }
