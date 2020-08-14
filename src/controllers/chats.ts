@@ -8,16 +8,11 @@ import { Base64 } from 'js-base64';
 
 export default class ChatsController {
     private _debug:boolean = true;
-    private _sender:any = '';
-    private _listener:any = '';
+    private _redis:any = '';    
     private _connections:Array<WebSocket.connection> = [];
 
     constructor( redisClient:any ) { 
-        this._sender = redisClient;
-        //this._listener = redisListener;
-
-        //redisListener.on( "message", async ( channel, message ) => {
-        //this._listener.on( "message", this.onMessage )
+        this._redis = redisClient;    
     }
 
     public async process( data:JSONObject, user:User, connection:WebSocket.connection  ):Promise<JSONObject> {        
@@ -80,7 +75,7 @@ export default class ChatsController {
         data.username = user.username;        
         data.shout = Base64.encode( shout );
 
-        if( !banned ) this._sender.publish( 'SHOUT_SENT', JSON.stringify( data ) );
+        if( !banned ) this._redis.publish( 'SHOUT_SENT', JSON.stringify( data ) );
         else this._connections[ user.id ].sendUTF( JSON.stringify( { type:"SHOUT", data } ) );        
 
         return { type:'SHOUT_SENT' };
