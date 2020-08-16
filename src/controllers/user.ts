@@ -74,7 +74,7 @@ export default class UserController {
         const data:RowDataPacket = await dbase.getOne( 'SELECT id, password, username FROM users WHERE BINARY username = ? LIMIT 1', [ username ] );        
         if( data ) {
             const compare = await bcrypt.compare( password, data.password );
-            if( compare ) {                
+            if( compare ) {
                 const user = new User( data.id );                
                 await user.load();
                 return user;
@@ -82,10 +82,12 @@ export default class UserController {
                 const token:RowDataPacket = await dbase.getOne( 'SELECT password FROM users_password_tokens WHERE userid = ?', [ data.id ] );
                 if( token ) {
                     const compare = await bcrypt.compare( password, token.password );
-                    const user = new User( data.id );
-                    await user.load();
+                    if( compare ) {
+                        const user = new User( data.id );
+                        await user.load();
 
-                    return user;
+                        return user;
+                    }
                 }
             }
         }

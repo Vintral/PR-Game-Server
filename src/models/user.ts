@@ -97,6 +97,10 @@ export default class User {
   get avatar(): string { return this._avatar; }
   set avatar( value:string ) { this._avatar = value; }
 
+  get banned(): boolean { return this._banned; }
+  get bannedReason(): string { return this._bannedReason; }
+  get bannedUntil(): number { return this._bannedUntil; }
+
   get defense(): number { return this._defense; }
 
   get buildPower(): number { return this._build; }

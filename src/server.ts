@@ -100,7 +100,13 @@ redisListener.on( "message", async ( channel, message ) => {
                 //console.log( users[ data.defender ] );
                 users[ data.defender ].user.update();
             }
-        } break;            
+        } break;
+        case "USER_BANNED": {
+            const { userid } = data;
+            if( users[ userid ] ) {                 
+                users[ userid ].connection.close( "1", "BANNED" );
+            }  
+        } break;
         default: console.log( "UNKNOWN COMMAND: " + data.command ); break;
       }
       break;
@@ -476,7 +482,15 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
                 if( tempUser == null ) return send( { type:'LOGIN_ERROR', data:'Invalid Username/Password' } );
 
                 let result:RowDataPacket = await dbase.getOne( `SELECT COUNT(id) AS total FROM users_push_tokens WHERE token = ? AND userid <> ?`, [ token, tempUser.id ] );
-                if( result && result.total >= 2 ) return send( { type:'ERROR', data:{ code: 'login-too-many' } } );                
+                if( result && result.total >= 2 ) return send( { type:'ERROR', data:{ code: 'login-too-many' } } );  
+                
+                if( tempUser.banned ) {
+                    const date:Date = new Date();
+                    const ticks:number = Math.floor( new Date().getTime() / 1000 );
+                    
+                    send( { type:"LOGIN_BANNED", data: { reason: tempUser.bannedReason, until: ( tempUser.bannedUntil - ticks ) } } );
+                    return;
+                }
 
                 user = tempUser;
                 user.redis = redisClient;
