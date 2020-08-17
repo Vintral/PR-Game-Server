@@ -628,8 +628,11 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
                     case 'get_markets': {
                         send( await _marketsController.process( data, user ) );
                     } break;
+                    case "claim_job":
                     case 'get_jobs': {
-                        await _jobsController.process( data, user, guid, connection );
+                        const message:JSONObject|null = await _jobsController.process( data, user, guid, connection );
+                        console.log( message );
+                        if( message !== null ) send( message );
                     } break;
                     case 'contact':
                     case 'get_shouts':
@@ -672,6 +675,12 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
               if( users[ user.id ].id == id )
                 delete users[ user.id ];
             }
+
+            let packet:JSONObject = {};
+            packet.server = guid;
+            packet.userid = user.id;
+            
+            redisClient.publish( "USER_OFFLINE", JSON.stringify( packet ) );
 
             await delAsync( 'USER-' + user.id );
             await decrAsync( 'USERS-ONLINE', 1 );

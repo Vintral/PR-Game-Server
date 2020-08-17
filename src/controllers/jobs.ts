@@ -16,14 +16,16 @@ export default class JobsController {
         this._redis = redis;
     }
 
-    public async process( data:JSONObject, user:User, guid:any, connection:WebSocket.connection ):Promise<void> {
+    public async process( data:JSONObject, user:User, guid:any, connection:WebSocket.connection ):Promise<JSONObject|null> {
         this.debug( 'process' );
-        console.log( data );
 
         switch( data.command ) {
             case 'get_jobs': this.getJobs( user, guid, connection ); break;
+            case "claim_job": return this.claimJob( user, data, guid ); break;
             default: this.debug( 'Unhandled Command: ' + data.command );
         }
+
+        return null;
     }
 
     public async processResponse( data:JSONObject ):Promise<boolean> {
@@ -78,6 +80,28 @@ export default class JobsController {
         const request:any = UUID();
         this._requests[ request ] = connection;
         this._redis.publish( 'GET_JOBS', JSON.stringify( { server:guid, userid:user.id, request } ) );
+    }
+
+    private async claimJob( user:User, data:JSONObject, guid:string ):Promise<JSONObject> {
+        this.debug( "claimJob" );
+
+        console.log( data );
+
+        const queries:JSONObject = {
+            retrieve: `SELECT userid, reward FROM users_jobs WHERE guid = ? LIMIT 1`,
+            claim: `UPDATE users_jobs SET claimed = UNIX_TIMESTAMP() WHERE guid =?`
+        }
+
+        const job:RowDataPacket = await dbase.getOne( queries.retrieve, [ data.job ] );
+        console.log( job );
+
+        if( job.userid === user.id ) {
+            const result:boolean = await user.addItem( job.reward );
+            if( !result ) return { type: "JOB_ERROR" };
+        } else return { type: "JOB_ERROR" };
+        
+        this._redis.publish( "CLAIM_JOB", JSON.stringify( { userid:user.id, job:data.job, server:guid } ) );
+        return { type: "JOB_CLAIMED" };
     }
 
     private debug( msg:string ):void {        
