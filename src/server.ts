@@ -107,6 +107,15 @@ redisListener.on( "message", async ( channel, message ) => {
                 users[ userid ].connection.close( "1", "BANNED" );
             }  
         } break;
+        case "CHAT_MESSAGE": {
+            console.log( data );
+            const { user:userid, packet } = data;
+            if( users[ userid ] ) {
+                console.log( userid );
+                console.log( packet );
+                users[ userid ].connection.sendUTF( JSON.stringify( packet ) );
+            } else console.log( "NO CONNECTION" );
+        } break;
         default: console.log( "UNKNOWN COMMAND: " + data.command ); break;
       }
       break;
@@ -641,8 +650,11 @@ server.on( 'connect', ( connection:WebSocket.connection ) => {
                     case 'leave_shoutbox':
                     case 'get_conversation':
                     case 'get_conversations':
+                    case 'mark_all_read':
+                    case 'delete_chats':                        
+                    case 'delete_chat':
                     case 'send_message': {
-                        send( await _conversationsController.process( data, user, connection ) );
+                        send( await _conversationsController.process( data, user, connection, redisClient, getAsync ) );
                     } break;
                     case 'get_near_ranks':
                     case 'get_top_ranks': {

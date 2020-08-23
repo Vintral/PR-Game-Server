@@ -15,7 +15,7 @@ export default class ChatsController {
         this._redis = redisClient;    
     }
 
-    public async process( data:JSONObject, user:User, connection:WebSocket.connection  ):Promise<JSONObject> {        
+    public async process( data:JSONObject, user:User, connection:WebSocket.connection, redis:any, getter:any  ):Promise<JSONObject> {        
         try {            
             switch( data.command ) {
                 case 'get_conversations': return { type:'CONVERSATIONS', data: await this.getConversations( user, data ) };
@@ -24,7 +24,10 @@ export default class ChatsController {
                 case 'send_shout': return await this.sendShout( user, data );
                 case 'join_shoutbox': return { type:'SHOUTBOX_JOINED', data: await this.joinShoutbox( user, connection ) };
                 case 'leave_shoutbox': return { type:'SHOUTBOX_LEFT', data: await this.leaveShoutbox( user, connection  ) };
-                case 'send_message': return { type:'MESSAGE_SENT', data: await this.sendMessage( user, data ) };
+                case 'send_message': return await this.sendMessage( user, data, connection, redis, getter );
+                case 'mark_all_read': return await this.markAllRead( user );
+                case 'delete_chats': return await this.deleteChats( user );                
+                case 'delete_chat': return await this.deleteChat( user, data );
                 case 'contact': return { type:'CONTACT_SUBMITTED', data: await this.submitContact( user, data ) };
             }
         } catch( err ) {
@@ -81,7 +84,46 @@ export default class ChatsController {
         return { type:'SHOUT_SENT' };
     }
 
-    private async sendMessage( user:User, data:JSONObject ):Promise<JSONObject> {
+    private async markAllRead( user:User ):Promise<JSONObject> {
+        this.debug( "markAllRead" );
+
+        const query:string = `UPDATE messages INNER JOIN conversations on conversations.id = conversation SET seen = 1 WHERE ( user1 = ? OR user2 = ? ) AND sender <> ?`;
+        let result:RowDataPacket = await dbase.query( query, [ user.id, user.id, user.id ] );
+
+        return { type:"CONVERSATIONS_MARKED_READ" };
+    }
+
+    private async deleteChats( user:User ):Promise<JSONObject> {
+        this.debug( "deleteChats" );
+
+        const queries:JSONObject = {
+            recipient: `UPDATE messages INNER JOIN conversations ON conversations.id = conversation SET recipient_view = 0  WHERE ( user1 = ? OR user2 = ? ) AND sender <> ?`,
+            sender: `UPDATE messages INNER JOIN conversations ON conversations.id = conversation SET sender_view = 0  WHERE ( user1 = ? OR user2 = ? ) AND sender = ?`
+        }
+
+        let result:RowDataPacket = await dbase.query( queries.recipient, [ user.id, user.id, user.id ] );
+        result = await dbase.query( queries.sender, [ user.id, user.id, user.id ] );
+
+        return { type:'CHATS_DELETED' };
+    }
+
+    private async deleteChat( user:User, data:JSONObject ):Promise<JSONObject> {
+        this.debug( "deleteChat" );
+
+        const { chat } = data;
+
+        const queries:JSONObject = {
+            recipient: `UPDATE messages SET recipient_view = 0  WHERE conversation = ? AND sender <> ?`,
+            sender: `UPDATE messages SET sender_view = 0  WHERE conversation = ? AND sender = ?`
+        }
+
+        let result:RowDataPacket = await dbase.query( queries.recipient, [ chat, user.id ] );
+        result = await dbase.query( queries.sender, [ chat, user.id ] );
+
+        return { type:'CHAT_DELETED', data:{ chat } };
+    }
+    
+    private async sendMessage( user:User, data:JSONObject, connection:WebSocket.connection, redis:any, getter:any ):Promise<JSONObject> {
         this.debug( 'sendMessage' );
 
         let { to, message } = data;
@@ -91,34 +133,49 @@ export default class ChatsController {
             receiver: `SELECT id FROM users WHERE username = ?`,
             exists: `SELECT id FROM conversations WHERE ( user1 = ? AND user2 = ?) OR ( user1 = ? AND user2 = ? )`,
             create: `INSERT INTO conversations ( user1, user2 ) VALUES ( ?, ? )`,
+            retrieve: `SELECT user1, user2 FROM conversations WHERE id = ?`,
             blocked: `SELECT id FROM contacts WHERE contactid = ? AND userid = ? AND type = 'blocked'`,
-            insert: `INSERT INTO messages ( conversation, sender, message, sent, sender_view, recipient_view ) VALUES ( ?, ?, ?, UNIX_TIMESTAMP(), ?, ? )`
+            insert: `INSERT INTO messages ( conversation, sender, message, sent, sender_view, recipient_view ) VALUES ( ?, ?, ?, UNIX_TIMESTAMP(), ?, ? )`            
         };
 
         let result:RowDataPacket = await dbase.getOne( queries.receiver, [ to ] );
         if( !result ) throw new Error( 'Recipient not found' );
-        console.log( result );
 
         const receiverID:number = +result.id;
-
         result = await dbase.getOne( queries.exists, [ user.id, receiverID, receiverID, user.id ] );
-        console.log( result );
+
+        let conversation:number = -1;
         if( !result ) {
             result = await dbase.query( queries.create, [ user.id, receiverID ] );
             console.log( result );
-        }        
+            conversation = result[ 0 ].insertId;
+        } else conversation = result.id;
+        
 
-        const conversation:number = result.id;
+        result = await dbase.getOne( queries.blocked, [ user.id, receiverID ] );        
+        const blocked:boolean = result !== undefined;        
 
-        result = await dbase.getOne( queries.blocked, [ receiverID, user.id ] );
-        console.log( result );
-        const blocked:boolean = result !== null;
+        result = await dbase.query( queries.insert, [ conversation, user.id, message, 1, blocked ? 0 : 1 ] );        
 
-        result = await dbase.query( queries.insert, [ conversation, user.id, message, 1, blocked ? 0 : 1 ] );
-        console.log( result );
+        let packet:JSONObject = {
+            type: "CHAT_MESSAGE",
+            data: {
+                chat: conversation,
+                guid: data.guid,
+                username: user.username,
+                avatar: user.avatar,
+                message: Base64.encode( message )
+            }
+        }
 
-        data.message = Base64.decode( data.message );
-        return { message: Base64.encode( data.message ) };
+        result = await dbase.getOne( queries.retrieve, [ conversation ] );
+        let server:string = await getter( "USER-" + ( result.user1 === user.id ? result.user2 : result.user1 ) );
+
+        if( !blocked ) {
+            if( server ) redis.publish( server, JSON.stringify( { command:"CHAT_MESSAGE", user: result.user1 === user.id ? result.user2 : result.user1, packet } ) );
+            else console.log( "SEND NOTIFICATION - NYI" );
+        }
+        return packet;
     }
 
     private async getConversation( user:User, data:JSONObject ):Promise<JSONObject> {
@@ -127,19 +184,39 @@ export default class ChatsController {
         const page:number = data.page || 1;
         const perPage:number = data.perPage || 30;
 
-        const queries:JSONObject = {
+        const queries:JSONObject = {            
             user: `SELECT id, avatar FROM users WHERE username = ?`,
-            count: `SELECT COUNT(messages.id) AS total FROM messages INNER JOIN conversations ON conversations.id = messages.conversation AND ( ( user1 = ? AND user2 = ? ) OR ( user1 = ? AND user2 = ? ) ) WHERE IF( sender = ?, sender_view, recipient_view ) = 1`,
-            retrieve: `SELECT sender, message, ( UNIX_TIMESTAMP() - sent ) AS since FROM messages INNER JOIN conversations ON conversations.id = messages.conversation AND ( ( user1 = ? AND user2 = ? ) OR ( user1 = ? AND user2 = ? ) ) WHERE IF( sender = ?, sender_view, recipient_view ) = 1 ORDER BY messages.id DESC LIMIT ?,?`
+            conversation: `SELECT id FROM conversations WHERE ( user1 = ? AND user2 = ? ) OR ( user1 = ? AND user2 = ? )`,
+            create: `INSERT INTO conversations SET user1 = ?, user2 = ?`,
+            //count: `SELECT COUNT( messages.id ) AS total FROM messages WHERE conversation = ? AND IF( sender = ?, sender_view, recipient_view ) = 1`,
+            retrieve: `SELECT sender, message, ( UNIX_TIMESTAMP() - sent ) AS since FROM messages WHERE conversation = ? AND IF( sender = ?, sender_view, recipient_view ) = 1 ORDER BY messages.id DESC`,// LIMIT ?,?`,
+            //range: `SELECT id FROM messages WHERE conversation = ? ORDER BY id DESC LIMIT ?, 1`,
+            markRead: `UPDATE messages SET seen = 1 WHERE conversation = ? AND sender <> ?`// AND id >= ? AND id <= ?`
         }
-
+        
         const userData:RowDataPacket = await dbase.getOne( queries.user, [ data.with ] );
-        const countData:RowDataPacket = await dbase.getOne( queries.count, [ user.id, userData.id, userData.id, user.id, user.id ])
-        const chatData:RowDataPacket = await dbase.get( queries.retrieve, [ user.id, userData.id, userData.id, user.id, user.id, ( page - 1 ) * perPage, perPage ] );
-        console.log( chatData.length );
+        let conversationData:RowDataPacket = await dbase.getOne( queries.conversation, [ user.id, userData.id, userData.id, user.id ] );
+        let conversation:number = -1;
+        if( conversationData === undefined ) {
+            conversationData = await dbase.query( queries.create, [ user.id, userData.id ] );
+            conversation = conversationData[ 0 ].insertId;            
+        } else conversation = conversationData.id;
+        
+        const countData:RowDataPacket = await dbase.getOne( queries.count, [ conversation, user.id ])
+        const chatData:RowDataPacket = await dbase.get( queries.retrieve, [ conversation, user.id, ( page - 1 ) * perPage, perPage ] );        
+        
+        let result:RowDataPacket = await dbase.getOne( queries.range, [ conversation, ( page - 1 ) * perPage ] );        
+        let max:number = result.id;
+        
+        result = await dbase.getOne( queries.range, [ conversation, ( page * perPage ) - 1 ] );        
+        let min:number = result ? result.id : 0;
+        
+        result = await dbase.query( queries.markRead, [ conversation, user.id, min, max ] );
 
         return {
+            conversation,
             avatar: userData.avatar,
+            username: data.with,
             pages: Math.ceil( countData.total / perPage ),
             page,
             messages: chatData.map( data => {
@@ -152,23 +229,32 @@ export default class ChatsController {
 
     private async getConversations( user:User, data:JSONObject ):Promise<JSONObject> {
         this.debug( 'getConversations: ' + data.page );
+
+        const start:number = Date.now();
         
         const queries = {
-            count: `SELECT COUNT(id) as total FROM ( SELECT conversations.id, COUNT(conversation) AS total FROM conversations INNER JOIN messages ON conversation = conversations.id AND ( ( sender_view = 1 AND sender = ? ) OR ( recipient_view = 1 ) ) WHERE user1 = ? OR user2 = ? GROUP BY conversation ) as A;`,
-            retrieve: `SELECT * FROM ( SELECT username, avatar, message, ( UNIX_TIMESTAMP() - sent ) AS since, seen, sender FROM conversations INNER JOIN users ON users.id = IF( user1 = 2, user2, user1 ) INNER JOIN messages ON conversation = conversations.id WHERE ( user1 = ? OR user2 = ? ) AND ( ( sender_view = 1 AND sender = ? ) OR ( recipient_view = 1 ) ) ORDER BY sent DESC LIMIT 1 ) AS a LIMIT ?,?`,
-        }
-        
-        const count:RowDataPacket = await dbase.getOne( queries.count, [ user.id, user.id, user.id ] );        
+            //count: `SELECT COUNT(b.id) AS total FROM ( SELECT * FROM conversations INNER JOIN ( SELECT MAX(id) AS maxID, conversation FROM messages WHERE ( sender_view = 1 AND sender = ? ) OR ( recipient_view = 1 AND sender <> ? ) GROUP BY conversation ) AS a ON conversation = conversations.id WHERE ( user1 = ? OR user2 = ? ) ) AS b`,
+            //retrieve: `SELECT * FROM ( SELECT username, avatar, message, ( UNIX_TIMESTAMP() - sent ) AS since, seen, sender FROM conversations INNER JOIN users ON users.id = IF( user1 = 2, user2, user1 ) INNER JOIN messages ON conversation = conversations.id WHERE ( user1 = ? OR user2 = ? ) AND ( ( sender_view = 1 AND sender = ? ) OR ( recipient_view = 1 ) ) ORDER BY sent DESC LIMIT 1 ) AS a LIMIT ?,?`,
+            //retrieve: "SELECT b.id, username, avatar, sender, seen, message, sent AS since FROM ( SELECT * FROM conversations INNER JOIN ( SELECT MAX(id) AS maxID, conversation FROM messages WHERE ( sender_view = 1 AND sender = ? ) OR ( recipient_view = 1 AND sender <> ? ) GROUP BY conversation ) AS a ON conversation = conversations.id WHERE ( user1 = ? OR user2 = ? ) ) AS b INNER JOIN users ON users.id = if( user1 = ?, user2, user1 ) INNER JOIN messages ON messages.id = maxID ORDER BY sent DESC" // LIMIT ?,?"
+            retrieve: "SELECT conversations.id, sender, message, sent, username, avatar FROM conversations LEFT JOIN conversations_users ON conversations_users.conversation = conversations.id INNER JOIN users ON users.id = if( user1 = ?, user2, user1 ) WHERE ( user1 = ? or user2 = ? ) AND userid = ?"
+        }        
+    
+        //const count:RowDataPacket = await dbase.getOne( queries.count, [ user.id, user.id, user.id, user.id ] );
+        //console.log( count );
 
-        const page:number = data.page || 1;
-        const perPage:number = data.perPage || 20;
-        const result:RowDataPacket[] = await dbase.get( queries.retrieve, [ user.id, user.id, user.id, ( page - 1 ) * perPage, perPage ] );
+        //const page:number = data.page || 1;
+        //const perPage:number = data.perPage || 20;        
+        const result:RowDataPacket[] = await dbase.get( queries.retrieve, [ user.id, user.id, user.id, user.id ] );
+        //console.log( page );
+        //console.log( perPage );
+        //console.log( result );
 
+        const finish:number = Date.now();
+        console.log( "Duration: " + ( finish - start ) );
         return {
-            page,
-            pages: Math.ceil( count.total / perPage ),
             conversations: result.map( data => {
                 data.sender = user.id == data.sender;
+                data.seen = data.sender ? true : data.seen;
                 data.message = Base64.encode( data.message );
                 return data;
             } )
