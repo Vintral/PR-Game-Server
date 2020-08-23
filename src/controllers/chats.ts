@@ -135,7 +135,9 @@ export default class ChatsController {
             create: `INSERT INTO conversations ( user1, user2 ) VALUES ( ?, ? )`,
             retrieve: `SELECT user1, user2 FROM conversations WHERE id = ?`,
             blocked: `SELECT id FROM contacts WHERE contactid = ? AND userid = ? AND type = 'blocked'`,
-            insert: `INSERT INTO messages ( conversation, sender, message, sent, sender_view, recipient_view ) VALUES ( ?, ?, ?, UNIX_TIMESTAMP(), ?, ? )`            
+            insert: `INSERT INTO messages ( conversation, sender, message, sent, sender_view, recipient_view ) VALUES ( ?, ?, ?, UNIX_TIMESTAMP(), ?, ? )`,
+            updateCache: `UPDATE conversations_users SET sender = ?, message = ?, sent = UNIX_TIMESTAMP() WHERE conversation = ? AND userid = ?`,
+            createCache: `INSERT INTO conversations_users ( conversation, userid, sender, message, sent ) VALUES ( ?, ?, ?, ?, UNIX_TIMESTAMP() )`
         };
 
         let result:RowDataPacket = await dbase.getOne( queries.receiver, [ to ] );
@@ -150,12 +152,19 @@ export default class ChatsController {
             console.log( result );
             conversation = result[ 0 ].insertId;
         } else conversation = result.id;
-        
 
-        result = await dbase.getOne( queries.blocked, [ user.id, receiverID ] );        
-        const blocked:boolean = result !== undefined;        
+        result = await dbase.getOne( queries.blocked, [ user.id, receiverID ] );
+        const blocked:boolean = result !== undefined;
 
-        result = await dbase.query( queries.insert, [ conversation, user.id, message, 1, blocked ? 0 : 1 ] );        
+        result = await dbase.query( queries.insert, [ conversation, user.id, message, 1, blocked ? 0 : 1 ] );
+
+        result = await dbase.query( queries.updateCache, [ user.id, message, conversation, user.id ] );
+        if( result[ 0 ].affecteRows === 1 ) {
+            if( !blocked ) await dbase.query( queries.updateCache, [ user.id, message, conversation, receiverID ] );
+        } else {
+            result = await dbase.query( queries.createCache, [ conversation, user.id, user.id, message ] );
+            if( !blocked ) result = await dbase.query( queries.createCache, [ conversation, receiverID, user.id, message ] );
+        }
 
         let packet:JSONObject = {
             type: "CHAT_MESSAGE",
@@ -188,9 +197,7 @@ export default class ChatsController {
             user: `SELECT id, avatar FROM users WHERE username = ?`,
             conversation: `SELECT id FROM conversations WHERE ( user1 = ? AND user2 = ? ) OR ( user1 = ? AND user2 = ? )`,
             create: `INSERT INTO conversations SET user1 = ?, user2 = ?`,
-            //count: `SELECT COUNT( messages.id ) AS total FROM messages WHERE conversation = ? AND IF( sender = ?, sender_view, recipient_view ) = 1`,
-            retrieve: `SELECT sender, message, ( UNIX_TIMESTAMP() - sent ) AS since FROM messages WHERE conversation = ? AND IF( sender = ?, sender_view, recipient_view ) = 1 ORDER BY messages.id DESC`,// LIMIT ?,?`,
-            //range: `SELECT id FROM messages WHERE conversation = ? ORDER BY id DESC LIMIT ?, 1`,
+            retrieve: `SELECT sender, message, ( UNIX_TIMESTAMP() - sent ) AS since FROM messages WHERE conversation = ? AND IF( sender = ?, sender_view, recipient_view ) = 1 ORDER BY messages.id DESC`,// LIMIT ?,?`,            
             markRead: `UPDATE messages SET seen = 1 WHERE conversation = ? AND sender <> ?`// AND id >= ? AND id <= ?`
         }
         
@@ -203,15 +210,9 @@ export default class ChatsController {
         } else conversation = conversationData.id;
         
         const countData:RowDataPacket = await dbase.getOne( queries.count, [ conversation, user.id ])
-        const chatData:RowDataPacket = await dbase.get( queries.retrieve, [ conversation, user.id, ( page - 1 ) * perPage, perPage ] );        
+        const chatData:RowDataPacket = await dbase.get( queries.retrieve, [ conversation, user.id, ( page - 1 ) * perPage, perPage ] );
         
-        let result:RowDataPacket = await dbase.getOne( queries.range, [ conversation, ( page - 1 ) * perPage ] );        
-        let max:number = result.id;
-        
-        result = await dbase.getOne( queries.range, [ conversation, ( page * perPage ) - 1 ] );        
-        let min:number = result ? result.id : 0;
-        
-        result = await dbase.query( queries.markRead, [ conversation, user.id, min, max ] );
+        let result:RowDataPacket = await dbase.query( queries.markRead, [ conversation, user.id ] );
 
         return {
             conversation,
