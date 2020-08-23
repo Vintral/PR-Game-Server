@@ -234,25 +234,21 @@ export default class ChatsController {
         const start:number = Date.now();
         
         const queries = {
-            //count: `SELECT COUNT(b.id) AS total FROM ( SELECT * FROM conversations INNER JOIN ( SELECT MAX(id) AS maxID, conversation FROM messages WHERE ( sender_view = 1 AND sender = ? ) OR ( recipient_view = 1 AND sender <> ? ) GROUP BY conversation ) AS a ON conversation = conversations.id WHERE ( user1 = ? OR user2 = ? ) ) AS b`,
-            //retrieve: `SELECT * FROM ( SELECT username, avatar, message, ( UNIX_TIMESTAMP() - sent ) AS since, seen, sender FROM conversations INNER JOIN users ON users.id = IF( user1 = 2, user2, user1 ) INNER JOIN messages ON conversation = conversations.id WHERE ( user1 = ? OR user2 = ? ) AND ( ( sender_view = 1 AND sender = ? ) OR ( recipient_view = 1 ) ) ORDER BY sent DESC LIMIT 1 ) AS a LIMIT ?,?`,
-            //retrieve: "SELECT b.id, username, avatar, sender, seen, message, sent AS since FROM ( SELECT * FROM conversations INNER JOIN ( SELECT MAX(id) AS maxID, conversation FROM messages WHERE ( sender_view = 1 AND sender = ? ) OR ( recipient_view = 1 AND sender <> ? ) GROUP BY conversation ) AS a ON conversation = conversations.id WHERE ( user1 = ? OR user2 = ? ) ) AS b INNER JOIN users ON users.id = if( user1 = ?, user2, user1 ) INNER JOIN messages ON messages.id = maxID ORDER BY sent DESC" // LIMIT ?,?"
-            retrieve: "SELECT conversations.id, sender, message, sent AS since, username, avatar FROM conversations LEFT JOIN conversations_users ON conversations_users.conversation = conversations.id INNER JOIN users ON users.id = if( user1 = ?, user2, user1 ) WHERE ( user1 = ? or user2 = ? ) AND userid = ?"
+            count: "SELECT COUNT(conversations.id) AS total FROM conversations INNER JOIN conversations_users ON conversations.id = conversations_users.conversation AND userid = ?",
+            retrieve: "SELECT conversations.id, sender, message, sent AS since, username, avatar FROM conversations LEFT JOIN conversations_users ON conversations_users.conversation = conversations.id INNER JOIN users ON users.id = if( user1 = ?, user2, user1 ) WHERE ( user1 = ? or user2 = ? ) AND userid = ? ORDER BY sent DESC LIMIT ?,?"
         }        
     
-        //const count:RowDataPacket = await dbase.getOne( queries.count, [ user.id, user.id, user.id, user.id ] );
-        //console.log( count );
+        const count:RowDataPacket = await dbase.getOne( queries.count, [ user.id ] );        
 
-        //const page:number = data.page || 1;
-        //const perPage:number = data.perPage || 20;        
-        const result:RowDataPacket[] = await dbase.get( queries.retrieve, [ user.id, user.id, user.id, user.id ] );
-        //console.log( page );
-        //console.log( perPage );
-        //console.log( result );
+        const page:number = data.page || 1;
+        const perPage:number = data.perPage || 20;
+        const result:RowDataPacket[] = await dbase.get( queries.retrieve, [ user.id, user.id, user.id, user.id, ( page - 1 ) * perPage, perPage ] );        
 
         const finish:number = Date.now();
         console.log( "Duration: " + ( finish - start ) );
         return {
+            page,
+            maxPage: Math.ceil( count.total / perPage ),
             conversations: result.map( data => {
                 data.sender = user.id == data.sender;
                 data.seen = data.sender ? true : data.seen;
