@@ -202,24 +202,22 @@ export default class ChatsController {
         }
         
         const userData:RowDataPacket = await dbase.getOne( queries.user, [ data.with ] );
+
         let conversationData:RowDataPacket = await dbase.getOne( queries.conversation, [ user.id, userData.id, userData.id, user.id ] );
         let conversation:number = -1;
         if( conversationData === undefined ) {
-            conversationData = await dbase.query( queries.create, [ user.id, userData.id ] );
-            conversation = conversationData[ 0 ].insertId;            
+            conversationData = await dbase.query( queries.create, [ user.id, userData.id ] );            
+            conversation = conversationData[ 0 ].insertId;
+            console.log( 3 );
         } else conversation = conversationData.id;
-        
-        const countData:RowDataPacket = await dbase.getOne( queries.count, [ conversation, user.id ])
+                
         const chatData:RowDataPacket = await dbase.get( queries.retrieve, [ conversation, user.id, ( page - 1 ) * perPage, perPage ] );
-        
-        let result:RowDataPacket = await dbase.query( queries.markRead, [ conversation, user.id ] );
+        let result:RowDataPacket = await dbase.query( queries.markRead, [ conversation, user.id ] );        
 
         return {
             conversation,
             avatar: userData.avatar,
             username: data.with,
-            pages: Math.ceil( countData.total / perPage ),
-            page,
             messages: chatData.map( data => {
                 data.sender = user.id == data.sender;
                 data.message = Base64.encode( data.message );
