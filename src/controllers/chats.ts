@@ -127,6 +127,8 @@ export default class ChatsController {
         this.debug( 'sendMessage' );
 
         let { to, message } = data;
+        let conversation:number = data.conversation;
+
         message = Base64.decode( message );
 
         const queries:JSONObject = {
@@ -142,16 +144,18 @@ export default class ChatsController {
 
         let result:RowDataPacket = await dbase.getOne( queries.receiver, [ to ] );
         if( !result ) throw new Error( 'Recipient not found' );
-
         const receiverID:number = +result.id;
-        result = await dbase.getOne( queries.exists, [ user.id, receiverID, receiverID, user.id ] );
 
-        let conversation:number = -1;
-        if( !result ) {
-            result = await dbase.query( queries.create, [ user.id, receiverID ] );
-            console.log( result );
-            conversation = result[ 0 ].insertId;
-        } else conversation = result.id;
+        if( conversation === 0 ) {            
+            result = await dbase.getOne( queries.exists, [ user.id, receiverID, receiverID, user.id ] );
+
+            let conversation:number = -1;
+            if( !result ) {
+                result = await dbase.query( queries.create, [ user.id, receiverID ] );
+                console.log( result );
+                conversation = result[ 0 ].insertId;
+            } else conversation = result.id;
+        }
 
         result = await dbase.getOne( queries.blocked, [ user.id, receiverID ] );
         const blocked:boolean = result !== undefined;
@@ -203,13 +207,14 @@ export default class ChatsController {
         
         const userData:RowDataPacket = await dbase.getOne( queries.user, [ data.with ] );
 
-        let conversationData:RowDataPacket = await dbase.getOne( queries.conversation, [ user.id, userData.id, userData.id, user.id ] );
         let conversation:number = -1;
-        if( conversationData === undefined ) {
-            conversationData = await dbase.query( queries.create, [ user.id, userData.id ] );            
-            conversation = conversationData[ 0 ].insertId;
-            console.log( 3 );
-        } else conversation = conversationData.id;
+        if( data.chat === 0 ) {
+            let conversationData:RowDataPacket = await dbase.getOne( queries.conversation, [ user.id, userData.id, userData.id, user.id ] );            
+            if( conversationData === undefined ) {
+                conversationData = await dbase.query( queries.create, [ user.id, userData.id ] );            
+                conversation = conversationData[ 0 ].insertId;
+            } else conversation = conversationData.id;
+        } else conversation = data.chat;
                 
         const chatData:RowDataPacket = await dbase.get( queries.retrieve, [ conversation, user.id, ( page - 1 ) * perPage, perPage ] );
         let result:RowDataPacket = await dbase.query( queries.markRead, [ conversation, user.id ] );        
