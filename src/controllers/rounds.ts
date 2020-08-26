@@ -12,7 +12,8 @@ export default class RoundsController {
 
     public async process( data:JSONObject, user:User ):Promise<any> {
         switch( data.command ) {
-            case 'get_rounds': return { type:'ROUNDS', data: await this.getActiveRounds( user ) };
+            case 'get_active_rounds': return await this.getActiveRounds( user );
+            case 'get_finished_rounds': return await this.getFinishedRounds( data, user );
             case 'join_round': return { type:'ROUND_JOINED', data: await this.joinRound( data, user ) };
             case 'play_round': return { type:'ROUND_SWITCHED', data: await this.playRound( data, user ) };
 
@@ -23,16 +24,40 @@ export default class RoundsController {
     private async getActiveRounds( user:User ):Promise<JSONObject> {
         this.debug( 'getActiveRounds' );        
 
-        const query:string = `SELECT rounds.id, rounds.energy, rounds.max_energy, IF( roundid IS NOT NULL, 1, 0 ) AS playing FROM rounds LEFT JOIN ( SELECT id, roundid FROM users_rounds WHERE userid = ? ) as u ON rounds.id = u.roundid WHERE active = 1`;
+        const query:string = `SELECT rounds.id, rounds.energy, rounds.max_energy, ( expires - UNIX_TIMESTAMP() ) AS time, IF( roundid IS NOT NULL, 1, 0 ) AS playing FROM rounds LEFT JOIN ( SELECT id, roundid FROM users_rounds WHERE userid = ? ) as u ON rounds.id = u.roundid WHERE active = 1`;
         const result:RowDataPacket[] = await dbase.get( query, [ user.id ] );
 
         let rounds:Array<JSONObject> = new Array<Round>();
         for( let i:number = 0; i < result.length; i++ ) {
-            console.log( result[ i ] );
             rounds.push( new Round( result[ i ] ).trim() );
         }
 
-        return rounds;
+        return { type:'ACTIVE_ROUNDS', data: { page:0, rounds } };
+    }
+
+    private async getFinishedRounds( data:JSONObject, user:User ):Promise<JSONObject> {
+        this.debug( 'getFinishedRounds' );
+
+        const page:number = data.page || 1;
+        const perPage:number = data.perPage || 10;
+
+        const queries:JSONObject = {
+            count: `SELECT COUNT(id) AS total FROM rounds WHERE active = 0`,
+            retrieve: 'SELECT rounds.id, rounds.energy, rounds.max_energy, ( UNIX_TIMESTAMP() - expires ) AS time, `rank`, tier, earned FROM rounds LEFT JOIN rankings ON rounds.id = rankings.round AND userid = ? WHERE active = 0 ORDER BY expires DESC LIMIT ?,?'
+        }
+        
+        const count:RowDataPacket = await dbase.getOne( queries.count );
+        const result:RowDataPacket[] = await dbase.get( queries.retrieve, [ user.id, ( page - 1 ) * perPage, perPage ] );
+
+        let rounds:Array<JSONObject> = new Array<Round>();
+        let round:Round;
+        for( let i:number = 0; i < result.length; i++ ) {
+            round = new Round( result[ i ] );
+            const { rank, tier, earned, time } = result[ i ];
+            rounds.push( { ...round.trim(), rank, tier, earned } );
+        }
+
+        return { type:'FINISHED_ROUNDS', data: { page, maxPages:Math.ceil( count.total / perPage ), rounds } };
     }
 
     private async loadRound( id:number, user:User ):Promise<Round|null> {

@@ -186,7 +186,10 @@ export default class ChatsController {
 
         if( !blocked ) {
             if( server ) redis.publish( server, JSON.stringify( { command:"CHAT_MESSAGE", user: result.user1 === user.id ? result.user2 : result.user1, packet } ) );
-            else console.log( "SEND NOTIFICATION - NYI" );
+            else {
+                console.log( "SENT NOTIFICATION REQUEST" );
+                redis.publish( "SEND_NOTIFICATION", JSON.stringify( { userid:result.user1 === user.id ? result.user2 : result.user1, type:"mail", message: user.username + " sent you a message" } ) );
+            }
         }
         return packet;
     }

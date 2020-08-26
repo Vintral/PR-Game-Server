@@ -19,6 +19,7 @@ export default class Round {
     private _recurring:boolean;
     private _processed:boolean;
     private _days:number;
+    private _time:number;
 
     //==============================//
     //  Accessors                   //
@@ -33,6 +34,7 @@ export default class Round {
     get stone():number { return this._stone; }
     get metal():number { return this._metal; }
     get maxEnergy():number { return this._maxEnergy; }
+    get time():number { return this._time; }
 
     //==============================//
     //  Constructor                 //
@@ -53,13 +55,15 @@ export default class Round {
         this._recurring = data.recurring || false;
         this._processed = data.processed || false;
         this._days = data.days || -1;
+
+        this._time = data.time || -1;
     }
 
     //==============================//
     //  Methods                     //
     //==============================//
     public trim():JSONObject {
-        const { _id: id, _energy: energy, _maxEnergy: maxEnergy, _playing: playing } = this;
-        return { id, energy, maxEnergy, playing };
+        const { _id: id, _energy: energy, _maxEnergy: maxEnergy, _playing: playing, _time:time } = this;
+        return { id, energy, maxEnergy, playing, time };
     }
 }
