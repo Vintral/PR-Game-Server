@@ -169,8 +169,7 @@ export default class User {
   }
 
   get land():number { return Math.floor( this._land / LAND_PRECISION ); }
-  set land( value:number ) {   
-    console.log( 'SET LAND: ' + value ); 
+  set land( value:number ) {
     value = ( value * LAND_PRECISION ) + ( this._land % LAND_PRECISION );
     value = Math.floor( value );
     this.storeDirty( 'land', Math.floor( value - this._land ) );
@@ -284,15 +283,6 @@ export default class User {
         return false;
       }
     }
-
-    /*results = await dbase.get( queries.ip, [ this._ip, this._id ] );
-    console.log( results );
-    for( let i:number = 0; i < results.length; i++ ) {
-      let result:RowDataPacket = await dbase.query( queries.update, [ this._id, results[ i ].userid, 2 ] );
-      if( result[ 0 ].affectedRows !== 1 ) {
-        result = await dbase.query( queries.insert, [ this._id, results[ i ].userid, 2 ] );
-      }
-    }*/
 
     return true;
   }
@@ -426,15 +416,15 @@ public stop():void {
     this._landFree = +data.land_free;
     
     if( this.land * LAND_PRECISION % LAND_PRECISION !== this.landFree * LAND_PRECISION % LAND_PRECISION ) {
-      console.log( '=======================================' );
-      console.log( '=======================================' );
-      console.log( '=======================================' );
-      console.log( this.land + ' ---- ' + this.landFree );
-      console.log( this.land * LAND_PRECISION % LAND_PRECISION );
-      console.log( this.landFree * LAND_PRECISION % LAND_PRECISION );
-      console.log( '=======================================' );
-      console.log( '=======================================' );
-      console.log( '=======================================' );
+      this.debug( '=======================================' );
+      this.debug( '=======================================' );
+      this.debug( '=======================================' );
+      this.debug( this.land + ' ---- ' + this.landFree );
+      this.debug( ( this.land * LAND_PRECISION % LAND_PRECISION ).toString() );
+      this.debug( ( this.landFree * LAND_PRECISION % LAND_PRECISION ).toString()  );
+      this.debug( '=======================================' );
+      this.debug( '=======================================' );
+      this.debug( '=======================================' );
 
       process.exit( 1 );
     }
@@ -478,7 +468,7 @@ public stop():void {
 
   public async dumpEnergy():Promise<void> {
     let result:RowDataPacket = await dbase.getOne( 'SELECT energy FROM users_rounds WHERE userid = ? AND roundid = ?', [ this.id, this.round ] );
-    console.log( 'ENERGY CHECK: ' + result.energy + ' --- ' + this.energy );
+    this.debug( 'ENERGY CHECK: ' + result.energy + ' --- ' + this.energy );
   }
 
   public async loadBuildings( round?:number ) {
@@ -513,10 +503,10 @@ public stop():void {
     this.debug( 'takeLand: ' + amount, true );    
     
     let result:RowDataPacket = await dbase.getOne( 'SELECT land, land_free FROM users_rounds WHERE userid = ? AND roundid = ?', [ this.id, this.round ] );
-    console.log( result );    
+    this.debug( result );    
 
-    console.log( 'CURRENT' );
-    console.log( this.land + ' --- ' + this.landFree );
+    this.debug( 'CURRENT' );
+    this.debug( this.land + ' --- ' + this.landFree );
 
     if( amount > this.land ) return {};
     if( amount < this.landFree ) {
@@ -557,24 +547,24 @@ public stop():void {
       keys = Object.keys( destroyed );
       keys.forEach( building => this.takeBuilding( building, destroyed[ building ] ) );
 
-      console.log( amount );
-      console.log( destroyed );
+      this.debug( amount.toString() );
+      this.debug( destroyed.toString() );
 
-      console.log( '---------------------' );
-      console.log( this.land );
-      console.log( amount );      
+      this.debug( '---------------------' );
+      this.debug( this.land.toString() );
+      this.debug( amount.toString() );
       this.land = this.land - amount;
-      console.log( this.land );
-      console.log( '---------------------' );
-      console.log( 'LAND FREE BEFORE: ' + this.landFree );
-      console.log( amount );
-      console.log( overrun );
-      console.log( ( amount - overrun ) );      
+      this.debug( this.land.toString() );
+      this.debug( '---------------------' );
+      this.debug( 'LAND FREE BEFORE: ' + this.landFree );
+      this.debug( amount.toString() );
+      this.debug( overrun.toString() );
+      this.debug( ( amount - overrun ).toString() );      
       this.landFree -= ( amount - overrun );
-      console.log( 'LAND FREE AFTER: ' + this.landFree );
+      this.debug( 'LAND FREE AFTER: ' + this.landFree );
 
-      console.log( 'AFTER' );
-      console.log( this.land + ' --- ' + this.landFree );
+      this.debug( 'AFTER' );
+      this.debug( this.land + ' --- ' + this.landFree );
 
       await this.commit();
 
@@ -601,8 +591,6 @@ public stop():void {
       const flag:boolean = this._interval % 5 === 0 ? true : false;
       await this.load( this._round, !flag, !flag );
 
-      console.log( flag ? this.trim() : this.trimLight() );
-
       const packet:JSONObject = {
         type: 'PLAYER_INFO',
         data: {
@@ -612,8 +600,8 @@ public stop():void {
       try {
         this._connection.sendUTF( JSON.stringify( packet ) );
       } catch( err ) {
-          console.log( chalk.red( 'USER ERROR 1' ) );
-          console.log( err );
+          this.debug( chalk.red( 'USER ERROR 1' ) );
+          this.debug( err );
       }
   }
 
@@ -632,8 +620,8 @@ public stop():void {
     try {
         this._connection.sendUTF( JSON.stringify( packet ) );
     } catch( err ) {
-        console.log( chalk.red( 'USER ERROR 2' ) );
-        console.log( err );
+        this.debug( chalk.red( 'USER ERROR 2' ) );
+        this.debug( err );
     }
 }
 
@@ -673,8 +661,8 @@ public async update():Promise<void> {
 
     this._power = Math.ceil( power );    
     if( this._power > 1000000 ) {
-        console.log( 'POWER: ' + power );
-        console.log( landResult.land * 5 / LAND_PRECISION );
+        this.debug( 'POWER: ' + power );
+        this.debug( ( landResult.land * 5 / LAND_PRECISION ).toString() );
         process.exit( 1 );
     }
 
@@ -845,7 +833,7 @@ public async update():Promise<void> {
       case 'string': 
         this._dirty[ label ] = value;
         break;
-      default: console.log( 'ERROR: Unhandled Dirty Type - ' + typeof( value ) );
+      default: this.debug( 'ERROR: Unhandled Dirty Type - ' + typeof( value ) );
     }
   }  
   
@@ -905,10 +893,7 @@ public async update():Promise<void> {
     params.push( this.round );        
     
     const query:string = 'UPDATE users_rounds SET' + setClause + whereClause;    
-    const result:RowDataPacket = await dbase.query( query, [ ...params ] ); 
-    console.log( 'QUERY' );
-    console.log( query );
-    console.log( params );
+    const result:RowDataPacket = await dbase.query( query, [ ...params ] );
 
     if( result[ 0 ].affectedRows === 1 ) {
       // Clear our dirty values
@@ -917,28 +902,27 @@ public async update():Promise<void> {
       if( land ) {
         const query:string = `SELECT land, land_free FROM users_rounds WHERE userid = ? AND roundid = ?`;
         const result:RowDataPacket = await dbase.getOne( query, [ this.id, this.round ] );
-        console.log( 'Loading Land' );
+        this.debug( 'Loading Land' );
 
-        console.log( result );
+        this.debug( result );
 
         this._land = +result.land;
         this._landFree = +result.land_free;
       }
       return true;
     } else {
-        console.log( query );
-        console.log( params );
+        this.debug( query );
 
         let result:RowDataPacket = await dbase.getOne( 'SELECT * FROM users_rounds WHERE userid = ? AND roundid = ?', [ this.id, this.round ] );
-        console.log( result );
+        this.debug( result );
     }
 
-    console.log( 'ERROR IN COMMIT' );
+    this.debug( 'ERROR IN COMMIT' );
     process.exit( 1 );
     return false;
 
     /*let dirty:any[] = [ ...this._dirty ];
-    console.log( dirty );
+    this.debug( dirty );
 
     let updates:any[] = [];
     for( let i:number = 0; i < dirty.length; i++ ) {
@@ -950,28 +934,28 @@ public async update():Promise<void> {
 
     let debits:Object = {};
     let keys = Object.keys( updates );
-    console.log( keys );
+    this.debug( keys );
     for( let i:number = 0; i < keys.length; i++ ) {
-      console.log( 'type: ' +  typeof( updates[ keys[ i ] ] ) );
+      this.debug( 'type: ' +  typeof( updates[ keys[ i ] ] ) );
       if( updates[ keys[ i ] ] < 0 ) {        
         if( debits[ keys[ i ] ] ) {
           debits[ keys[ i ] ] = updates[ keys[ i ] ];
-          console.log( debits[ keys[ i ] ] );
-          console.log( updates[ keys[ i ] ] );
+          this.debug( debits[ keys[ i ] ] );
+          this.debug( updates[ keys[ i ] ] );
         }
         else debits[ keys[ i ] ] += updates[ keys[ i ] ];
       }
     }
 
-    console.log( updates );
-    console.log( debits );
+    this.debug( updates );
+    this.debug( debits );
 
     //const debits:number[] = [];
     //const updates:number[] = [];
     
-    /*console.log( this._dirty.keys() );
+    /*this.debug( this._dirty.keys() );
     for( let key in this._dirty.keys() ) {
-      console.log( key );
+      this.debug( key );
 
       if( updates[ key ] ) updates[ key ] += this._dirty[ key ];
       else updates[ key ] = this._dirty[ key ];
@@ -982,8 +966,8 @@ public async update():Promise<void> {
       }
     }*/
 
-    //console.log( updates );
-    //console.log( debits );
+    //this.debug( updates );
+    //this.debug( debits );
   }
 
   async log( action:string, round?:number ):Promise<void> {
@@ -1079,7 +1063,7 @@ public async update():Promise<void> {
   }
 
   public trim():JSONObject {
-    //console.log( this );
+    //this.debug( this );
 
     return {
       id: this._id,

@@ -71,8 +71,7 @@ class Database {
     try{
         const start = Date.now();    
         const data:mysql.RowDataPacket[] = await this.pool.query( query, params );
-        console.log( query );
-        console.log( "Took: " + ( Date.now() - start ) );
+        this.debug( "Took: " + ( Date.now() - start ) );
         return data[ 0 ];
     } catch( err ) {
       logger.logError( err );

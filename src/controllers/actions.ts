@@ -127,8 +127,6 @@ export default class ActionsController {
   private async processRecruit(data: JSONObject, user: User): Promise<JSONObject> {
     this.debug('processRecruit', true);
 
-    console.log( data );
-
     const { type, quantity } = data;
 
     if (!quantity || quantity <= 0) return this.error( 'recruit-amount' );
@@ -308,10 +306,7 @@ export default class ActionsController {
 
     if( !data.energy || data.energy <= 0 ) return this.error( 'energy-invalid' );
     if (data.energy > user.energy) return this.error( 'energy' );
-
-    console.log( 'processExplore: ' + data.energy.toString() );
-    console.log( user.energy );
-    console.log( user._dirty );
+    
     user.dumpEnergy();    
 
     const queries = {
@@ -322,6 +317,7 @@ export default class ActionsController {
     let result: RowDataPacket = await dbase.getOne(queries.getLand, [user.id, user.round]);
     //user.land = parseFloat(result.land);
     let land: number = user.land;
+    const landBefore: number = user.land;
 
     let energy: number = data.energy;
     let gain: number = 0;
@@ -355,12 +351,15 @@ export default class ActionsController {
 
     //increase = Math.floor( ( increase * 100 ) ) / 100;
     console.log( "INCREASE: " + increase );
-
-    const delta: number = Math.floor(user.land + increase - Math.floor(user.land));
+    
     user.energy -= data.energy;
     user.energySpent += data.energy;
     user.land += +increase;
     user.landFree += +increase;
+    const delta: number = Math.floor( user.land - Math.floor( landBefore ) );
+    console.log( "BEFORE: " + landBefore );
+    console.log( "AFTER: " + user.land );
+    console.log( "CHANGE: " + Math.floor( user.land - Math.floor( landBefore ) ) );
     if( user.land * LAND_PRECISION % LAND_PRECISION !== user.landFree * LAND_PRECISION % LAND_PRECISION ) {
         console.log( '=======================================' );
         console.log( '=======================================' );
@@ -374,7 +373,6 @@ export default class ActionsController {
     }
     user.calculatePower( user.round );
 
-    console.log( user._dirty );
     const commited:boolean = await user.commit();
     this.debug( 'Stored: ' + commited.toString() );
 
